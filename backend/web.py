@@ -108,9 +108,11 @@ def create_web_app(database_url=None, secret=None, settings=None, *, production=
     settings = settings or Settings.load(Path.cwd())
     production = os.getenv("APP_ENV", "production") == "production" if production is None else production
     database_url = database_url or os.getenv("DATABASE_URL")
-    secret = secret or os.getenv("GUEST_SECRET")
+    # Replit can provision SESSION_SECRET on import. Reuse that stable secret
+    # when the owner has not supplied an application-specific override.
+    secret = secret or os.getenv("GUEST_SECRET") or os.getenv("SESSION_SECRET")
     if production and (not database_url or not database_url.startswith(("postgresql://", "postgres://")) or not secret or len(secret) < 32):
-        raise RuntimeError("Production requires a PostgreSQL DATABASE_URL and a GUEST_SECRET of at least 32 characters.")
+        raise RuntimeError("Production requires a PostgreSQL DATABASE_URL and a GUEST_SECRET (or SESSION_SECRET) of at least 32 characters.")
     database_url = database_url or "sqlite:///.artifacts/web-data.sqlite3"
     secret = secret or "local-development-only-guest-secret"
     if guest_limit < 1 or global_limit < 1:

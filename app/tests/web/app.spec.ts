@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type WebSocketRoute } from "@playwright/test";
 
 async function captureFixture(page: Page, denied = false) {
   await page.addInitScript((deny) => {
@@ -101,4 +101,27 @@ test("another browser has an empty isolated workspace and APIs reject foreign ID
   });
   expect(response.status()).toBe(404);
   await other.close();
+});
+
+test("reconnection recovers recording even when the final stop request was lost", async ({ page }) => {
+  await captureFixture(page);
+  let connection: WebSocketRoute | undefined;
+  await page.routeWebSocket("**/api/events", (socket) => {
+    socket.connectToServer();
+    connection = socket;
+  });
+  await page.goto("/");
+  await createRecording(page, "Connection recovery task");
+  await page.route("**/api/command", (route) => {
+    const body = route.request().postDataJSON();
+    return body.name === "recording" && body.data.state === "idle" ? route.abort("failed") : route.continue();
+  });
+  await connection!.close({ code: 1012, reason: "Disposable test interruption" });
+  await expect.poll(async () => (await (await page.request.get("/api/state")).json()).recording).toBe("idle");
+  const recovered = await (await page.request.get("/api/state")).json();
+  expect(recovered.cloud).toBe(false);
+  await page.unroute("**/api/command");
+  await page.getByRole("navigation").getByRole("button", { name: "Home", exact: true }).click();
+  await createRecording(page, "Recording after reconnection");
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
 });

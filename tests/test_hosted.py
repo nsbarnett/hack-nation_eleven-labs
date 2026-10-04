@@ -188,9 +188,13 @@ def test_budgets_are_atomic_and_persisted(tmp_path):
     asyncio.run(run())
 
 
-def test_production_requires_database_and_secret():
+def test_production_requires_database_and_secret(monkeypatch):
     with pytest.raises(RuntimeError):
         create_web_app("sqlite:///:memory:", "short", production=True)
+    monkeypatch.delenv("GUEST_SECRET", raising=False)
+    monkeypatch.setenv("SESSION_SECRET", "replit-provisioned-test-secret-32-characters")
+    # Construction validates configuration; no network connection until lifespan.
+    create_web_app("postgresql://configured-at-startup", settings=Settings(), production=True)
 
 
 def test_websocket_uses_cookie_and_checks_origin(client):

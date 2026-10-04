@@ -1,10 +1,12 @@
 # Hosted browser validation
 
-On October 3, 2026: all 72 Python tests, four renderer tests, and three Edge browser acceptance tests passed. Both web and Electron TypeScript builds passed. The hosted suite adds guest isolation, origin/cookie checks, durable quotas, privacy invalidation, reload recovery and sanitized provider failures. Browser acceptance covers permission denial, capture/navigation/pause/resume, local video playback, debrief, map review/confirmation, teaching, reload and deletion.
+On October 3, 2026: all 72 Python tests, four renderer tests, and four Edge browser acceptance tests passed. Both web and Electron TypeScript builds passed. The hosted suite adds guest isolation, origin/cookie checks, durable quotas, privacy invalidation, reload recovery and sanitized provider failures. Browser acceptance covers permission denial, capture/navigation/pause/resume, local video playback, debrief, map review/confirmation, teaching, reload and deletion.
 
 The browser suite uses a test-only model adapter and a canvas capture stream, with the real API, MediaRecorder and IndexedDB. A separate paid-provider check (`python tools/check_hosted_live.py`) passed with the configured OpenAI key: a real debrief question, five evidence-linked map steps, and practice from confirmed synthetic test evidence. This opt-in script sends only disposable notes and removes its temporary database. ElevenLabs, production PostgreSQL and the published Replit URL still need acceptance.
 
 See [REPLIT.md](REPLIT.md) for commands and the production checklist. Historical desktop results follow; the packaged 0.2.0 executable was not rebuilt as part of the hosted change.
+
+Replit workspace build passed. `tools/check_hosted_database.py` passed against its actual development PostgreSQL: save/load, cross-guest denial, and reconnect persistence. The fourth browser test deliberately loses the stop HTTP request during a WebSocket disconnect and verifies that reconnection recovers an idle, consent-off state and permits a new recording.
 
 # Validation — Electron migration
 

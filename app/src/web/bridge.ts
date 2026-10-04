@@ -11,7 +11,7 @@ export function createWebBridge(): Desktop {
   let current: State | null = null, media = { ...emptyMedia }, initialized = false;
   let initialization: Promise<void> | undefined, socket: WebSocket | undefined;
   let ownsTab = false, fetchSerial = 0, appliedSerial = 0;
-  let lastActivity = performance.now(), stopped = false, retry = 1000;
+  let lastActivity = performance.now(), stopped = false, retry = 1000, interrupted = false;
   const callbacks = new Set<(event: any) => void>();
   const segments = new Map<string, { guest: string; session: string }>();
   const urls = new Set<string>();
@@ -23,6 +23,7 @@ export function createWebBridge(): Desktop {
     const response = await fetch(`/api/${path}`, {
       method: body !== undefined || raw ? "POST" : "GET",
       credentials: "same-origin",
+      signal: AbortSignal.timeout(60_000),
       headers: { "X-Apprentice-Client": "web", ...(raw ? { "Content-Type": "application/octet-stream" } : body !== undefined ? { "Content-Type": "application/json" } : {}) },
       body: raw ? new Blob([new Uint8Array(raw)]) : body !== undefined ? JSON.stringify(body) : undefined,
     });
@@ -44,13 +45,23 @@ export function createWebBridge(): Desktop {
   function connect() {
     if (stopped) return;
     socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/events`);
-    socket.onopen = () => { retry = 1000; };
+    socket.onopen = () => {
+      retry = 1000;
+      if (interrupted) {
+        interrupted = false;
+        // Track shutdown happens immediately on disconnect. The final HTTP
+        // command may have failed, so reset the server's capture state too.
+        void send("recover").then(reconcile).then(load).then(() => emit({ type: "resync" }))
+          .catch((error) => emit({ type: "error", message: String(error) }));
+      }
+    };
     socket.onmessage = (event) => {
       const value = JSON.parse(event.data);
       if (value.type !== "heartbeat") emit(value);
     };
     socket.onclose = () => {
       if (stopped) return;
+      interrupted = true;
       emit({ type: "backend-offline", message: "Connection interrupted. Capture has stopped; saved browser media is retained." });
       setTimeout(connect, retry);
       retry = Math.min(15000, retry * 2);

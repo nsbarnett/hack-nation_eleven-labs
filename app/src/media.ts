@@ -261,6 +261,10 @@ export async function startRecording(selected?: Source, preparedStream?: MediaSt
 }
 export async function stopRecording(paused = false) {
   if (stopping) return finishing;
+  if (!recorder && !stream && !segment && useMedia.getState().status.state === "idle") {
+    cancelVoice();
+    return;
+  }
   stopping = true;
   finishing = new Promise<void>((resolve) => {
     finishResolve = resolve;

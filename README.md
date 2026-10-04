@@ -33,7 +33,7 @@ $env:APP_ENV = 'development'
 .\.venv\Scripts\python.exe -m backend.web
 ```
 
-Open `http://localhost:3000` directly in Chrome or Edge. Development uses SQLite when `DATABASE_URL` is absent. Production refuses to start without PostgreSQL and a stable `GUEST_SECRET`. Do not publish in development mode. Recording and manual notes work without AI keys; model-dependent controls explain missing configuration instead of inventing results.
+Open `http://localhost:3000` directly in Chrome or Edge. Development uses SQLite when `DATABASE_URL` is absent. Production refuses to start without PostgreSQL and a stable `GUEST_SECRET` (or Replit-provided `SESSION_SECRET`). Do not publish in development mode. Recording and manual notes work without AI keys; model-dependent controls explain missing configuration instead of inventing results.
 
 ## What is available now
 
@@ -126,7 +126,7 @@ On macOS, replace the Windows Python path with `.venv/bin/python`. Packages are 
 
 ## Verification and current limits
 
-The hosted checks passed **72 Python tests** and **3 Edge browser tests**. Browser tests use test-only provider responses and a canvas capture source while exercising real MediaRecorder, IndexedDB, and the API. They cover permission denial, navigation, pause/resume, notes, debrief, map confirmation, teaching, reload, deletion, and guest isolation. Earlier desktop validation passed **4 renderer/voice tests** and **2 tests against the packaged Windows executable**, including real display capture and overlay controls. See [testing details and outstanding release checks](docs/TESTING.md).
+The hosted checks passed **72 Python tests** and **4 Edge browser tests**. Browser tests use test-only provider responses and a canvas capture source while exercising real MediaRecorder, IndexedDB, and the API. They cover permission denial, navigation, pause/resume, notes, debrief, map confirmation, teaching, reload, deletion, and guest isolation. Earlier desktop validation passed **4 renderer/voice tests** and **2 tests against the packaged Windows executable**, including real display capture and overlay controls. See [testing details and outstanding release checks](docs/TESTING.md).
 
 A separate live OpenAI check passed debrief, evidence-linked map generation, and grounded practice using disposable test notes. ElevenLabs and the published Replit deployment still need live acceptance. macOS packages have not been verified on this Windows host. The Windows installer is unsigned. Neither edition records system audio, redacts sensitive screen content automatically, provides cross-device account sync, or controls external applications. Once cloud analysis or voice data has been sent to a provider, turning it off cannot recall that request.
 

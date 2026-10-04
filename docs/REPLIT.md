@@ -6,14 +6,14 @@ The hosted entry point is `python -m backend.web`. It serves `app/dist` and the 
 
 1. Import this GitHub repository into a Replit app. Use Python 3.12 and Node 22; `.replit` declares both. Do not launch `main.py`, which starts Electron.
 2. Add a Replit SQL database. Configure a **production database** for the published app. Its `DATABASE_URL` must be available to the deployed process; development and production databases are separate. Do not copy development guest sessions into production.
-3. In Replit Secrets, add `GUEST_SECRET` (a stable random value of at least 32 characters), `OPENAI_API_KEY`, and `ELEVENLABS_API_KEY`. Generate the guest secret with a password manager or `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Keep it out of source control. Changing it invalidates guest cookies. Set `APP_ENV=production` (also the default).
+3. In Replit Secrets, add `OPENAI_API_KEY` and `ELEVENLABS_API_KEY`. The imported workspace already has Replit's `SESSION_SECRET`; the app uses it to sign guest cookies. If it is absent, add `GUEST_SECRET`, a stable random value of at least 32 characters, which takes precedence. Generate a new secret with a password manager or `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Keep secrets out of source control. Changing the signing secret invalidates guest cookies. Set `APP_ENV=production` (also the default).
 4. Optional configuration: `OPENAI_MODEL` (default `gpt-4.1`), `ELEVENLABS_VOICE_ID`, `ELEVENLABS_TTS_MODEL`, `ELEVENLABS_STT_MODEL`, `HOSTED_GUEST_AI_CALLS` (default 100/day), and `HOSTED_DAILY_AI_CALLS` (default 1000/day). Both call limits must be positive. Calls, including failed attempts, consume the shared allowance. Provider-side spending caps remain advisable because call count is not a dollar budget.
 5. Install and build in the workspace: `python -m pip install -r requirements-web.txt`, then `cd app && ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci && npm run build:web`. The production build command in `.replit` performs the same steps. No Electron binary is needed by the web server.
 6. Publish using **Reserved VM**, one process/worker, port 3000. Use the build and run commands in `.replit`. Confirm that production Secrets include the database URL and the provider/guest secrets. `/healthz` checks the database; `/` opens the app. Open the published URL in a standalone Chrome or Edge tab, not just the editor's embedded preview.
 7. Optionally set `PUBLIC_ORIGIN` to the exact published HTTPS origin. Without it, requests must match the HTTPS Host header. Use a single canonical URL: guest cookies and local media belong to an origin.
 8. Complete the published acceptance checklist below. Submit the published HTTPS URL, not the Replit editor URL or a temporary development preview.
 
-The app refuses production startup without PostgreSQL and the guest signing secret. Missing provider keys leave manual capture and notes available, with explicit errors for AI or voice. Never use the test fixture server for publishing.
+The app refuses production startup without PostgreSQL and the guest signing secret. Missing provider keys leave manual capture and notes available, with explicit errors for AI or voice. Never use the test fixture server for publishing. The imported Replit workspace builds successfully and its development PostgreSQL passed write/read, isolation and reconnect checks; this does not establish production publication.
 
 References: [Replit configuration](https://docs.replit.com/features/project-setup/configuration), [deployment types](https://docs.replit.com/features/publishing/deployment-types), [development and production databases](https://docs.replit.com/features/data-and-storage/development-and-production).
 
@@ -75,7 +75,7 @@ Settings can delete the open workflow and local media after confirmation. Librar
 
 ## Verification and troubleshooting
 
-Local automated acceptance: 72 Python tests, four renderer tests and three Edge browser tests passed on Windows. Test model outputs and canvas capture are fixtures confined to tests; these do not prove real screen permissions, PostgreSQL behavior, or a published deployment. Separately, `python tools/check_hosted_live.py` passed three real OpenAI calls for debrief, map generation and practice using disposable synthetic notes. This is an opt-in paid-provider check, not a seeded demo.
+Local automated acceptance: 72 Python tests, four renderer tests and four Edge browser tests passed on Windows. Test model outputs and canvas capture are fixtures confined to tests; these do not prove real screen permissions, PostgreSQL behavior, or a published deployment. Separately, `python tools/check_hosted_live.py` passed three real OpenAI calls for debrief, map generation and practice using disposable synthetic notes. This is an opt-in paid-provider check, not a seeded demo.
 
 For the browser suite, build the UI, then run the fixture API in a separate terminal with `python -m uvicorn tests.web_fixture:app --host 127.0.0.1 --port 3001`. Run `npm run test:web` inside `app/` (installed Edge required). Do not publish that fixture entry point.
 
