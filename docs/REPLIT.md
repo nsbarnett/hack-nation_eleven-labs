@@ -1,6 +1,6 @@
 # Browser edition: setup and operation
 
-The hosted entry point is `python -m backend.web`. It serves `app/dist` and the guest API from one process on port 3000. The Electron entry point and its authenticated localhost API remain independent. This document describes implemented behavior; the final section records which checks still require the published environment.
+The hosted entry point is `.venv/bin/python -m backend.web`. It serves `app/dist` and the guest API from one process on port 3000. The Electron entry point and its authenticated localhost API remain independent. This document describes implemented behavior; the final section records which checks still require the published environment.
 
 ## Publish on Replit
 
@@ -8,7 +8,7 @@ The hosted entry point is `python -m backend.web`. It serves `app/dist` and the 
 2. Add a Replit SQL database. Configure a **production database** for the published app. Its `DATABASE_URL` must be available to the deployed process; development and production databases are separate. Do not copy development guest sessions into production.
 3. In Replit Secrets, add `OPENAI_API_KEY` and `ELEVENLABS_API_KEY`. The imported workspace already has Replit's `SESSION_SECRET`; the app uses it to sign guest cookies. If it is absent, add `GUEST_SECRET`, a stable random value of at least 32 characters, which takes precedence. Generate a new secret with a password manager or `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Keep secrets out of source control. Changing the signing secret invalidates guest cookies. Set `APP_ENV=production` (also the default).
 4. Optional configuration: `OPENAI_MODEL` (default `gpt-4.1`), `ELEVENLABS_VOICE_ID`, `ELEVENLABS_TTS_MODEL`, `ELEVENLABS_STT_MODEL`, `HOSTED_GUEST_AI_CALLS` (default 100/day), and `HOSTED_DAILY_AI_CALLS` (default 1000/day). Both call limits must be positive. Calls, including failed attempts, consume the shared allowance. Provider-side spending caps remain advisable because call count is not a dollar budget.
-5. Install and build in the workspace: `python -m pip install -r requirements-web.txt`, then `cd app && ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci && npm run build:web`. The production build command in `.replit` performs the same steps. No Electron binary is needed by the web server.
+5. Install and build in the workspace: `python -m venv .venv`, then `.venv/bin/python -m pip install -r requirements-web.txt`, then `cd app && ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci && npm run build:web`. Replit's system Python rejects global pip installs; use the virtual environment's Python and do not pass `--break-system-packages`. The development Run command and production build command in `.replit` perform these steps. No Electron binary is needed by the web server.
 6. Publish using **Reserved VM**, one process/worker, port 3000. Use the build and run commands in `.replit`. Confirm that production Secrets include the database URL and the provider/guest secrets. `/healthz` checks the database; `/` opens the app. Open the published URL in a standalone Chrome or Edge tab, not just the editor's embedded preview.
 7. Optionally set `PUBLIC_ORIGIN` to the exact published HTTPS origin. Without it, requests must match the HTTPS Host header. Use a single canonical URL: guest cookies and local media belong to an origin.
 8. Complete the published acceptance checklist below. Submit the published HTTPS URL, not the Replit editor URL or a temporary development preview.
@@ -19,7 +19,7 @@ References: [Replit configuration](https://docs.replit.com/features/project-setu
 
 ## Local setup
 
-Install `requirements-web.txt`, run `npm ci` and `npm run build:web` in `app/`, then set `APP_ENV=development` and run `python -m backend.web` at the repository root. On Unix: `APP_ENV=development python -m backend.web`. On PowerShell: `$env:APP_ENV='development'` before the Python command.
+Create `.venv` with `python -m venv .venv`, install `requirements-web.txt` with `.venv/bin/python -m pip`, run `npm ci` and `npm run build:web` in `app/`, then set `APP_ENV=development` and run `.venv/bin/python -m backend.web` at the repository root. On Unix: `APP_ENV=development .venv/bin/python -m backend.web`. On PowerShell, set `$env:APP_ENV='development'` and use `.\.venv\Scripts\python.exe`.
 
 Development falls back to `.artifacts/web-data.sqlite3` and a development-only signing secret. A root `.env` can supply provider settings; process environment variables take precedence. Production requires an actual PostgreSQL URL. Python never needs Qt for either headless backend.
 
