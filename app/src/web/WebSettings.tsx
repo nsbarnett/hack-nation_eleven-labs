@@ -1,6 +1,7 @@
 import { KeyRound, ShieldCheck } from "lucide-react";
 import { useApp } from "../stores";
 import { DeleteWorkflow } from "../components/DeleteWorkflow";
+import { downloadDiagnostics } from "./diagnostics";
 
 export function WebSettings() {
   const data = useApp((s) => s.data)!;
@@ -13,6 +14,9 @@ export function WebSettings() {
         <p>OpenAI <span className="badge">{data.credentials.openai ? "Configured" : "Unavailable — contact the app owner"}</span></p>
         <p>ElevenLabs <span className="badge">{data.credentials.elevenlabs ? "Configured" : "Unavailable — text answers still work"}</span></p>
         <p className="muted">Connection status reflects server configuration. Provider errors will appear when a request cannot be completed. The hosted allowance is {data.limits?.dailyAiCalls} AI or voice requests per browser per day, subject to the app's shared daily limit.</p>
+        <p>Running version {data.version} · revision <code>{data.revision || "unknown"}</code></p>
+        <button className="button" onClick={downloadDiagnostics}>Download diagnostic log</button>
+        <p className="small muted">Includes recent request IDs, actions, status codes, timing, and connection failures from this tab. Notes, recordings, cookies, and keys are excluded.</p>
       </section>
       <section className="panel settings-section">
         <h2><ShieldCheck size={20} /> Your data</h2>

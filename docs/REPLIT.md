@@ -82,6 +82,32 @@ Workflow cards, Home, and Settings use the same named deletion dialog with Cance
 
 ## Verification and troubleshooting
 
+For an error, use **Download diagnostic log** in the error banner or Settings.
+The JSON file contains the last 100 request/connection events from that tab:
+action, endpoint (without query values), request ID, HTTP status, elapsed time,
+network/timeout/response category, and running server version/revision. It does
+not contain notes, workflow titles, cookies, keys, response bodies or media.
+The buffer clears when the page reloads, so download it before reloading when
+investigating a failure. A browser network error alone cannot distinguish a
+server restart, blocked connection, network outage or proxy problem.
+
+The backend writes structured `apprentice` records to its process output.
+Match the browser's request ID to `request_completed`, `request_exception`,
+`provider_failed`, or `job_failed`. Async model jobs preserve the initiating
+request ID and have their own job ID. Provider errors include exception type,
+HTTP status when available, and traceback file/function/line locations;
+credentials, raw exception messages and provider response bodies are excluded.
+WebSocket logs show acceptance/rejection/disconnection, and browser logs include
+the close code. Mutating requests are never retried automatically because a
+lost response does not prove the action failed.
+
+`/healthz` reports database health, version and source revision. Settings also
+shows version/revision. HTML and API responses use `Cache-Control: no-store`.
+Restart the backend after updating Python code and rebuild `app/dist` after
+frontend changes; a Git push alone does not update a running Replit preview.
+The Run/build commands set `PIP_USER=0` to prevent Replit's user-install default
+from conflicting with `.venv`.
+
 See TESTING.md for current local test results. Version 0.4.0 adds local OCR, actual redacted video encoding, revision-gated uploads and extension tests. Historical 0.3.0 acceptance covered 72 Python tests, four renderer tests and four Edge browser tests on Windows. Test model outputs and canvas capture are fixtures confined to tests; these do not prove real screen permissions, PostgreSQL behavior, or a published deployment. Separately, `python tools/check_hosted_live.py` passed three real OpenAI calls for debrief, map generation and practice using disposable synthetic notes. This is an opt-in paid-provider check, not a seeded demo.
 
 For the browser suite, build the UI, then run the fixture API in a separate terminal with `python -m uvicorn tests.web_fixture:app --host 127.0.0.1 --port 3001`. Run `npm run test:web` inside `app/` (installed Edge required). Do not publish that fixture entry point.

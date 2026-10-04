@@ -1,9 +1,9 @@
 modules = ["python-3.12", "nodejs-22"]
-run = ["sh", "-c", "python -m venv .venv && .venv/bin/python -m pip install -r requirements-web.txt && cd app && ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci && npm run build:web && cd .. && exec .venv/bin/python -m backend.web"]
+run = ["sh", "-c", "python -m venv .venv && PIP_USER=0 .venv/bin/python -m pip install -r requirements-web.txt && cd app && ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci && npm run build:web && cd .. && exec .venv/bin/python -m backend.web"]
 
 [deployment]
 deploymentTarget = "vm"
-build = ["sh", "-c", "python -m venv .venv && .venv/bin/python -m pip install -r requirements-web.txt && cd app && ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci && npm run build:web"]
+build = ["sh", "-c", "python -m venv .venv && PIP_USER=0 .venv/bin/python -m pip install -r requirements-web.txt && cd app && ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci && npm run build:web"]
 run = ["sh", "-c", "exec .venv/bin/python -m backend.web"]
 
 [[ports]]

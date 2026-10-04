@@ -31,6 +31,7 @@ import { ProcessingStatus, ApprovedAnalysisNotice } from "./components/Processin
 import { ReviewerQuestion } from "./components/ReviewerQuestion";
 import { WorkflowDeletionDialog } from "./components/DeleteWorkflow";
 import { contentTransition } from "./animations";
+import { downloadDiagnostics } from "./web/diagnostics";
 const navigation: { name: Page; icon: typeof HomeIcon }[] = [
   { name: "Home", icon: HomeIcon },
   { name: "Record", icon: Video },
@@ -163,6 +164,7 @@ export function App() {
         {error && (
           <div className="error-banner" role="alert">
             <span>{error}</span>
+            {window.desktop.platform === "web" && <button className="text-button" onClick={downloadDiagnostics}>Download diagnostic log</button>}
             <button
               aria-label="Dismiss error"
               onClick={() => useApp.setState({ error: "" })}

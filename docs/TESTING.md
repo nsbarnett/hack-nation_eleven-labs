@@ -1,5 +1,18 @@
 # Hosted browser validation
 
+## Request diagnostics (0.5.0, October 4, 2026)
+
+144 Python tests, 16 renderer tests, and 17 Edge browser acceptance cases passed.
+The production browser/extension build and TypeScript checks passed. New cases
+cover request-ID correlation on successful, rejected and unexpected server
+responses; safe traceback locations and provider HTTP status; correlation from
+an asynchronous model failure back to its initiating command; network loss,
+offline state, 60-second timeouts, interrupted response bodies, malformed JSON,
+HTML proxy errors, and a diagnostic download that excludes private notes/titles.
+Failed mutations are sent once, without an automatic retry. Tests use fixture
+providers and simulated network failures; they do not identify the cause of a
+previous failure in another browser session.
+
 ## Core AI and workflow deletion (0.5.0, October 4, 2026)
 
 Local Windows results:

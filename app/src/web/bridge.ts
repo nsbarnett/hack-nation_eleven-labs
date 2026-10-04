@@ -4,6 +4,8 @@
  */
 import type { Desktop, State, MediaStatus } from "../types";
 import { appendAsset, beginAsset, finishAsset, listAssets, readAsset, removeAssets } from "./localMedia";
+import { hostedRequest } from "./request";
+import { diagnostic, setServerRelease } from "./diagnostics";
 const id = () => crypto.randomUUID().replaceAll("-", "");
 const emptyMedia: MediaStatus = { state: "idle", muted: true, voice: "idle", duration: 0 };
 
@@ -19,33 +21,21 @@ export function createWebBridge(): Desktop {
   for (const event of ["pointerdown", "keydown", "pointermove"]) {
     window.addEventListener(event, () => { lastActivity = performance.now(); }, { passive: true });
   }
-  async function api(path: string, body?: unknown, raw?: Uint8Array): Promise<Response> {
-    const response = await fetch(`/api/${path}`, {
-      method: body !== undefined || raw ? "POST" : "GET",
-      credentials: "same-origin",
-      signal: AbortSignal.timeout(60_000),
-      headers: { "X-Apprentice-Client": "web", ...(raw ? { "Content-Type": "application/octet-stream" } : body !== undefined ? { "Content-Type": "application/json" } : {}) },
-      body: raw ? new Blob([new Uint8Array(raw)]) : body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(typeof error.detail === "string" ? error.detail : `The hosted request failed (${response.status}). Try again.`);
-    }
-    return response;
-  }
   async function load() {
     const serial = ++fetchSerial;
-    const result: State = await (await api("state")).json();
+    const result = await hostedRequest<State>("state");
+    setServerRelease(result.version, result.revision);
     if (serial >= appliedSerial) { current = { ...result, media }; appliedSerial = serial; }
     return current!;
   }
   async function send(name: string, data: unknown = {}, sessionId = current?.session?.id) {
-    return (await api("command", { name, data, sessionId })).json();
+    return hostedRequest("command", { name, data, sessionId });
   }
   function connect() {
     if (stopped) return;
     socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/events`);
     socket.onopen = () => {
+      diagnostic({ event: "connection_opened", operation: "Live updates", endpoint: "/api/events" });
       retry = 1000;
       if (interrupted) {
         interrupted = false;
@@ -56,13 +46,24 @@ export function createWebBridge(): Desktop {
       }
     };
     socket.onmessage = (event) => {
-      const value = JSON.parse(event.data);
+      let value;
+      try { value = JSON.parse(event.data); }
+      catch {
+        diagnostic({ event: "connection_message_failed", operation: "Live updates", endpoint: "/api/events", category: "invalid_response" });
+        emit({ type: "error", message: "The live update could not be read. Reload the preview to reconnect." });
+        return;
+      }
+      if (value.type === "error") {
+        diagnostic({ event: "job_failed", operation: value.operation || "AI processing", requestId: value.requestId, jobId: value.jobId, category: "provider_or_processing" });
+        if (value.requestId) value.message += ` Request ID: ${value.requestId}.`;
+      }
       if (value.type !== "heartbeat") emit(value);
     };
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (stopped) return;
+      diagnostic({ event: "connection_closed", operation: "Live updates", endpoint: "/api/events", category: "connection", code: event.code, clean: event.wasClean, online: navigator.onLine });
       interrupted = true;
-      emit({ type: "backend-offline", message: "Connection interrupted. Capture has stopped; saved browser media is retained." });
+      emit({ type: "backend-offline", message: `Live connection interrupted (code ${event.code}). Capture has stopped; saved browser media is retained. Reconnecting…` });
       setTimeout(connect, retry);
       retry = Math.min(15000, retry * 2);
     };
@@ -195,10 +196,10 @@ export function createWebBridge(): Desktop {
     },
     async reviewedFrame(bytes, duration, identifier, sessionId, revision) {
       const query = new URLSearchParams({ sessionId, id: identifier, duration: String(duration), revision: String(revision) });
-      await api(`reviewed-frame?${query}`, undefined, bytes);
+      await hostedRequest(`reviewed-frame?${query}`, undefined, bytes);
     },
-    async speech(text) { const response = await api("speech", { text, sessionId: workflow().session }); return new Uint8Array(await response.arrayBuffer()); },
-    async transcribe(bytes) { return (await api(`transcribe?sessionId=${workflow().session}`, undefined, bytes)).json(); },
+    async speech(text) { return hostedRequest<Uint8Array>("speech", { text, sessionId: workflow().session }, undefined, true); },
+    async transcribe(bytes) { return hostedRequest<{ text: string }>(`transcribe?sessionId=${workflow().session}`, undefined, bytes); },
     saveCredentials: async () => { throw new Error("Hosted connections are managed by the app owner."); },
     checkCredentials: async () => { throw new Error("Hosted connections are managed by the app owner."); },
     importLegacy: async () => { throw new Error("Legacy import is available in the desktop edition."); },

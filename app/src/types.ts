@@ -61,6 +61,7 @@ export type MediaStatus = {
   duration: number;
 };
 export type State = {
+  revision?: string;
   evaluation?: Evaluation | null;
   epoch?: string;
   hosted?: boolean;

@@ -7,6 +7,7 @@ import asyncio
 import base64
 import io
 import inspect
+import logging
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -23,6 +24,7 @@ from apprentice import evaluation
 from apprentice.exporting import export_session
 from backend.repository import Repository
 from backend.voice import ElevenVoice
+from backend import diagnostics
 from backend.training import generate, evaluate_exercise
 
 
@@ -110,6 +112,10 @@ class Service:
         await self.emit()
 
         async def run():
+            identifier = new_id()
+            token = diagnostics.job_id.set(identifier)
+            began = time.monotonic()
+            diagnostics.log("job_started", operation=role)
             try:
                 async def invoke(step, callback):
                     if generation != self.generation:
@@ -127,17 +133,24 @@ class Service:
                         elif self.assistant == "thinking":
                             self.assistant = "watching" if self.recording == "recording" else "idle"
                         await self.persist()
+                diagnostics.log("job_completed", operation=role, applied=generation == self.generation,
+                    elapsed_ms=round((time.monotonic() - began) * 1000))
+            except asyncio.CancelledError:
+                diagnostics.log("job_cancelled", operation=role)
+                raise
             except Exception as error:
+                diagnostics.log("job_failed", level=logging.ERROR, operation=role, **diagnostics.failure(error))
                 if generation == self.generation:
                     # Provider exceptions can include request headers or sensitive content.
                     message = str(error) if isinstance(error, ValueError) else "The AI request failed. Check your connection and credentials, then retry."
-                    await self.emit("error", message=message)
+                    await self.emit("error", message=message, operation=role, requestId=diagnostics.request_id.get(), jobId=identifier)
             finally:
                 self.jobs.discard(role)
                 self.job_stages.pop(role, None)
                 if generation == self.generation and self.assistant == "thinking":
                     self.assistant = "watching" if self.recording == "recording" else "idle"
                 await self.emit()
+                diagnostics.job_id.reset(token)
         task = asyncio.create_task(run())
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)

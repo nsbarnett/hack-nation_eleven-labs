@@ -7,6 +7,7 @@ deliberately has no filesystem, credentials, import, or video-upload endpoint.
 import asyncio
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 import time
@@ -16,13 +17,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, WebSocket
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from apprentice.config import Settings
-from backend.hosted_service import HostedService, IDENTIFIER
+from backend.hosted_service import HostedService, IDENTIFIER, ALLOWED
+from backend import diagnostics
 from backend.hosted_store import HostedDatabase, GuestRepository, LimitError
 from backend.voice import ElevenVoice
 
@@ -59,11 +62,20 @@ class HostedRuntime:
         self.providers = asyncio.Semaphore(4)
 
     async def provider(self, guest, role, work):
-        if self.providers.locked():
-            raise LimitError("The hosted assistant is busy. Try again shortly.")
-        async with self.providers:
-            await self.database.consume(guest, self.guest_limit, self.global_limit)
-            return await asyncio.to_thread(work)
+        began = time.monotonic()
+        diagnostics.log("provider_started", operation=role)
+        try:
+            if self.providers.locked():
+                raise LimitError("The hosted assistant is busy. Try again shortly.")
+            async with self.providers:
+                await self.database.consume(guest, self.guest_limit, self.global_limit)
+                result = await asyncio.to_thread(work)
+            diagnostics.log("provider_completed", operation=role, elapsed_ms=round((time.monotonic() - began) * 1000))
+            return result
+        except Exception as error:
+            diagnostics.log("provider_failed", level=logging.ERROR, operation=role,
+                elapsed_ms=round((time.monotonic() - began) * 1000), **diagnostics.failure(error))
+            raise
 
     async def get(self, identifier):
         async with self.lock:
@@ -140,6 +152,8 @@ def create_web_app(database_url=None, secret=None, settings=None, *, production=
         app.state.runtime = runtime
         await runtime.database.cleanup()
         cleanup = asyncio.create_task(runtime.tidy())
+        diagnostics.log("server_started", version=diagnostics.VERSION, revision=diagnostics.revision(),
+            production=production, openai_configured=bool(settings.openai_key), elevenlabs_configured=bool(settings.eleven_key))
         yield
         cleanup.cancel()
         await asyncio.gather(cleanup, return_exceptions=True)
@@ -194,6 +208,38 @@ def create_web_app(database_url=None, secret=None, settings=None, *, production=
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
         return response
 
+    @app.middleware("http")
+    async def request_diagnostics(request: Request, call_next):
+        supplied = request.headers.get("x-apprentice-request-id", "")
+        identifier = supplied if IDENTIFIER.fullmatch(supplied) else secrets.token_hex(16)
+        token = diagnostics.request_id.set(identifier)
+        request.state.request_id = identifier
+        began = time.monotonic()
+        known = {"/api/state", "/api/command", "/api/frame", "/api/reviewed-frame", "/api/speech", "/api/transcribe", "/healthz", "/"}
+        path = request.url.path if request.url.path in known else "static_or_unknown"
+        try:
+            try:
+                response = await call_next(request)
+            except Exception as error:
+                diagnostics.log("request_exception", level=logging.ERROR, method=request.method, endpoint=path,
+                    operation=getattr(request.state, "operation", None), **diagnostics.failure(error))
+                response = JSONResponse({"detail": "The app server could not complete this request. Use its request ID to check the server logs."}, 500)
+            response.headers["X-Apprentice-Request-ID"] = identifier
+            response.headers["X-Apprentice-Version"] = diagnostics.VERSION
+            if request.url.path.startswith("/api/") or path in {"/", "/healthz"}:
+                response.headers["Cache-Control"] = "no-store"
+            if path != "static_or_unknown" or response.status_code >= 400:
+                diagnostics.log("request_completed", level=logging.WARNING if response.status_code >= 400 else logging.INFO,
+                    method=request.method, endpoint=path, operation=getattr(request.state, "operation", None),
+                    status=response.status_code, elapsed_ms=round((time.monotonic() - began) * 1000))
+            return response
+        finally:
+            diagnostics.request_id.reset(token)
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request, error):
+        return JSONResponse({"detail": "Invalid request fields. Refresh the app and retry."}, 422)
+
     @app.exception_handler(LimitError)
     async def limited(request, error):
         return JSONResponse({"detail": str(error)}, 429)
@@ -210,19 +256,20 @@ def create_web_app(database_url=None, secret=None, settings=None, *, production=
     @app.get("/healthz")
     async def health():
         await app.state.runtime.database.call(lambda: app.state.runtime.database.execute("SELECT 1").fetchone())
-        return {"ok": True}
+        return {"ok": True, "version": diagnostics.VERSION, "revision": diagnostics.revision()}
 
     @app.get("/api/state")
     async def state(request: Request):
         entry = request.state.entry
         async with entry.service.lock:
             state = await entry.service.snapshot()
-        return {**state, "version": "0.5.0", "hosted": True, "guest": request.state.guest,
+        return {**state, "version": diagnostics.VERSION, "revision": diagnostics.revision(), "hosted": True, "guest": request.state.guest,
                 "limits": {"recordingSeconds": 300, "mediaBytes": 100_000_000, "dailyAiCalls": guest_limit},
                 "media": {"state": "idle", "muted": True, "voice": "idle", "duration": 0}}
 
     @app.post("/api/command")
     async def command(request: Request, body: Command):
+        request.state.operation = body.name if body.name in ALLOWED else "unsupported_command"
         async with request.state.entry.lock:
             try:
                 return await request.state.entry.service.hosted_command(body.name, body.data, body.sessionId)
@@ -293,13 +340,16 @@ def create_web_app(database_url=None, secret=None, settings=None, *, production=
         guest = identity(socket.cookies.get(COOKIE))
         expected = os.getenv("PUBLIC_ORIGIN", f"{'https' if production else 'http'}://{socket.headers.get('host', '')}").rstrip("/")
         if not guest or socket.headers.get("origin", "").rstrip("/") != expected:
+            diagnostics.log("websocket_rejected", level=logging.WARNING, code=1008)
             await socket.close(code=1008)
             return
         entry = await app.state.runtime.get(guest)
         if len(entry.service.listeners) >= 3:
+            diagnostics.log("websocket_rejected", level=logging.WARNING, code=1013)
             await socket.close(code=1013)
             return
         await socket.accept()
+        diagnostics.log("websocket_opened")
         queue = asyncio.Queue(maxsize=50)
         entry.service.listeners.add(queue)
         try:
@@ -311,8 +361,10 @@ def create_web_app(database_url=None, secret=None, settings=None, *, production=
                 except asyncio.TimeoutError:
                     event = {"type": "heartbeat"}
                 await socket.send_json(event)
-        except Exception:
-            pass
+        except WebSocketDisconnect as error:
+            diagnostics.log("websocket_closed", code=error.code)
+        except Exception as error:
+            diagnostics.log("websocket_failed", level=logging.WARNING, **diagnostics.failure(error))
         finally:
             entry.service.listeners.discard(queue)
 
