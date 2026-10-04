@@ -1,3 +1,11 @@
+# Hosted browser validation
+
+On October 3, 2026: all 72 Python tests, four renderer tests, and three Edge browser acceptance tests passed. Both web and Electron TypeScript builds passed. The hosted suite adds guest isolation, origin/cookie checks, durable quotas, privacy invalidation, reload recovery and sanitized provider failures. Browser acceptance covers permission denial, capture/navigation/pause/resume, local video playback, debrief, map review/confirmation, teaching, reload and deletion.
+
+The browser suite uses a test-only model adapter and a canvas capture stream, with the real API, MediaRecorder and IndexedDB. A separate paid-provider check (`python tools/check_hosted_live.py`) passed with the configured OpenAI key: a real debrief question, five evidence-linked map steps, and practice from confirmed synthetic test evidence. This opt-in script sends only disposable notes and removes its temporary database. ElevenLabs, production PostgreSQL and the published Replit URL still need acceptance.
+
+See [REPLIT.md](REPLIT.md) for commands and the production checklist. Historical desktop results follow; the packaged 0.2.0 executable was not rebuilt as part of the hosted change.
+
 # Validation — Electron migration
 
 Verified locally on Windows on October 3, 2026. The desktop tests used isolated temporary sessions and disabled provider credentials. Test data was not seeded into the installed application.
@@ -44,9 +52,3 @@ For the packaged executable, set APPRENTICE_EXECUTABLE to the absolute path of r
 ## Fixes found during validation
 
 A chat effect returned the new Chromium scrolling result instead of a cleanup function, causing a render failure after saving a note. The effect now explicitly returns nothing. Context focus now follows component mounting rather than an arbitrary timer. Microphone/speech generations reject late responses, and overlapping stop/close requests wait for the same recording flush.
-# Hosted browser validation
-
-On October 3, 2026: all 72 Python tests, four renderer tests, and three Edge browser acceptance tests passed. Both web and Electron TypeScript builds passed. The hosted suite adds guest isolation, origin/cookie checks, durable quotas, privacy invalidation, reload recovery and sanitized provider failures. Browser acceptance covers permission denial, capture/navigation/pause/resume, local video playback, debrief, map review/confirmation, teaching, reload and deletion.
-
-The browser suite uses a test-only model adapter and a canvas capture stream, with the real API, MediaRecorder and IndexedDB. It is not evidence of live provider success or published Replit acceptance. See [REPLIT.md](REPLIT.md) for commands and the remaining production checklist. Historical desktop results follow; the packaged 0.2.0 executable was not rebuilt as part of the hosted change.
-

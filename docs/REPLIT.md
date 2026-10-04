@@ -75,7 +75,7 @@ Settings can delete the open workflow and local media after confirmation. Librar
 
 ## Verification and troubleshooting
 
-Local automated acceptance: 72 Python tests and three Edge browser tests passed on Windows. Test model outputs and canvas capture are fixtures confined to tests; these do not prove real screen permissions, provider success, PostgreSQL behavior, or a published deployment.
+Local automated acceptance: 72 Python tests, four renderer tests and three Edge browser tests passed on Windows. Test model outputs and canvas capture are fixtures confined to tests; these do not prove real screen permissions, PostgreSQL behavior, or a published deployment. Separately, `python tools/check_hosted_live.py` passed three real OpenAI calls for debrief, map generation and practice using disposable synthetic notes. This is an opt-in paid-provider check, not a seeded demo.
 
 For the browser suite, build the UI, then run the fixture API in a separate terminal with `python -m uvicorn tests.web_fixture:app --host 127.0.0.1 --port 3001`. Run `npm run test:web` inside `app/` (installed Edge required). Do not publish that fixture entry point.
 
