@@ -41,6 +41,10 @@ export type MediaStatus = {
   duration: number;
 };
 export type State = {
+  epoch?: string;
+  hosted?: boolean;
+  guest?: string;
+  limits?: { recordingSeconds: number; mediaBytes: number; dailyAiCalls: number };
   sequence: number;
   session: Workflow | null;
   sessions: {

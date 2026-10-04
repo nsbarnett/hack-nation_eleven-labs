@@ -144,8 +144,7 @@ export function AssistantPanel() {
           onChange={toggleMute}
         />
         <p className="small muted">
-          Questions wait for inactivity and a stable screen. The microphone
-          opens only when you choose Voice.
+          {window.desktop.platform === "web" ? "Questions use screen stability and activity in this page; the browser cannot detect typing in another app." : "Questions wait for inactivity and a stable screen."} The microphone opens only when you choose Voice.
         </p>
       </section>
     </aside>

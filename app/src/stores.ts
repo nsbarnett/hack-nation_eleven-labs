@@ -29,7 +29,7 @@ export const useApp = create<Store>((set, get) => ({
   refresh: async () => {
     try {
       const data = await window.desktop.state();
-      if (!get().data || data.sequence >= get().data!.sequence) set({ data });
+      if (!get().data || data.epoch !== get().data!.epoch || data.sequence >= get().data!.sequence) set({ data });
     } catch (error) {
       get().fail(error);
     }

@@ -85,8 +85,7 @@ export function Home({ onRecord }: { onRecord: () => void }) {
             icon={<GitBranch size={25} />}
             heading="Your first workflow starts here"
           >
-            Record a task or import your existing recordings in Settings. Your
-            saved work will appear here.
+            {window.desktop.platform === "web" ? "Record a task to begin. Your notes and Work Maps will appear here; recordings stay in this browser." : "Record a task or import your existing recordings in Settings. Your saved work will appear here."}
           </Empty>
         </div>
       )}

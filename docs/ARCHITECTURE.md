@@ -90,3 +90,7 @@ Drafts cite retained expert evidence. Users review and verify every retained ste
 | `tools/make_desktop_icons.py`, `app/assets/` | Reproducible original waveform icon and generated Windows/macOS installer assets. |
 | `.github/workflows/desktop.yml` | Windows and macOS build/test/package matrix; requires an actual CI run to produce remote artifacts. |
 | `main.py`, `pyproject.toml`, `requirements*.txt` | Electron compatibility launcher, Python package metadata and separated current/legacy development dependencies. |
+# Hosted browser architecture
+
+The browser entry point is now `backend/web.py`. It serves the same React pages through `app/src/web/bridge.ts`, with guest-scoped PostgreSQL text storage and browser IndexedDB media. The desktop preload and local backend remain supported. See [the hosted file guide and data flow](REPLIT.md) for module responsibilities, authentication, quotas and deployment; the desktop architecture below still describes the Electron edition.
+

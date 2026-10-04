@@ -6,6 +6,8 @@
   "author": "AI Apprentice",
   "main": "dist-electron/main.js",
   "scripts": {
+    "build:web": "tsc --noEmit && vite build",
+    "test:web": "playwright test -c playwright.web.config.ts",
     "dev": "npm run build && electron .",
     "build": "tsc --noEmit && vite build && tsc -p tsconfig.electron.json",
     "start": "electron .",

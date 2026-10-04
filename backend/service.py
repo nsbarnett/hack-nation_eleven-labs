@@ -25,12 +25,14 @@ from backend.training import generate
 
 
 class Service:
-    def __init__(self, root, settings):
-        self.repo = Repository(root)
+    def __init__(self, root, settings, *, repository=None, work_runner=None):
+        self.repo = repository or Repository(root)
+        self.work_runner = work_runner or (lambda role, work: asyncio.to_thread(work))
         self.settings = settings
         self.session = None
         self.generation = 0
         self.sequence = 0
+        self.epoch = new_id()
         self.cloud = False
         self.recording = "idle"
         self.assistant = "idle"
@@ -54,7 +56,7 @@ class Service:
                 "question": self.question, "practice": self.practice, "coaching": self.coaching,
                 "credentials": {"openai": bool(self.settings.openai_key), "elevenlabs": bool(self.settings.eleven_key),
                                 "voiceId": self.settings.voice_id, "model": self.settings.model},
-                "sequence": self.sequence, "busy": sorted(self.jobs)}
+                "sequence": self.sequence, "epoch": self.epoch, "busy": sorted(self.jobs)}
 
     async def emit(self, kind="state", **data):
         self.sequence += 1
@@ -76,6 +78,7 @@ class Service:
         self.generation += 1
         self.question = None
         self.assistant = "idle"
+        self.repo.clear_media_cache()
 
     def require_session(self):
         if not self.session:
@@ -94,7 +97,7 @@ class Service:
 
         async def run():
             try:
-                result = await asyncio.to_thread(work)
+                result = await self.work_runner(role, work)
                 async with self.lock:
                     if generation == self.generation:
                         apply(result)
@@ -172,8 +175,7 @@ class Service:
             filename = data["filename"]
             if not filename.endswith(".webm") or "/" in filename or "\\" in filename:
                 raise ValueError("Invalid recording filename.")
-            path = self.repo.store.media(session.id, filename)
-            if not path.is_file():
+            if not await self.repo.has_recording(session.id, filename):
                 raise ValueError("Recording file is missing.")
             if filename not in session.recordings:
                 session.recordings.append(filename)
@@ -255,8 +257,7 @@ class Service:
             before = list(session.evidence)
             removed = forget(session, data["id"])
             paths = [e.image for e in before if e.id in removed and e.image] + session.recordings
-            for relative in paths:
-                await self.repo.call(self.repo.store.media(session.id, relative).unlink, True)
+            await self.repo.remove_media(session.id, paths)
             session.recordings = []
             self.practice = {"items": [], "answers": {}}
         elif name == "practice":
@@ -300,7 +301,7 @@ class Service:
         self.session.messages.append(Message(role="assistant", text=text, evidence_ids=evidence_ids))
         self.assistant = "question"
 
-    async def frame(self, payload, duration, idle):
+    async def frame(self, payload, duration, idle, evidence_id=None):
         async with self.lock:
             if self.recording != "recording":
                 return
@@ -322,14 +323,16 @@ class Service:
                 self.stable_since = now
             self.previous_image = thumb
             evidence = Evidence(kind="trainee_screen" if self.coaching else "screen", timestamp=duration)
+            if evidence_id is not None:
+                evidence.id = evidence_id
             evidence.image = evidence.id + ".jpg"
-            await self.repo.call(self.repo.store.media(session.id, evidence.image).write_bytes, jpeg)
+            await self.repo.save_frame(session.id, evidence.image, jpeg)
             session.evidence.append(evidence)
             if self.cloud and self.settings.openai_key:
                 if now - self.last_analysis >= self.settings.analysis_seconds and not self.jobs:
                     self.last_analysis = now
                     snapshot = session.model_copy(deep=True)
-                    images = [(e.id, self.repo.store.media(session.id, e.image)) for e in session.evidence if e.kind == evidence.kind and e.image][-3:]
+                    images = await self.repo.images(session, evidence.kind)
                     if self.coaching:
                         def apply(result):
                             if result.verdict == "warn":

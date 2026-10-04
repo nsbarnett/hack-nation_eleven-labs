@@ -3,6 +3,7 @@ import { GraduationCap, Monitor, ArrowUp } from "lucide-react";
 import { useApp, useMedia, run } from "../stores";
 import { stopRecording } from "../media";
 import { Button, Empty } from "../components/Controls";
+import { CloudConsent } from "../components/CloudConsent";
 export function Teach({ onRecord }: { onRecord: () => void }) {
   const data = useApp((s) => s.data)!;
   const recording = useMedia((s) => s.status.state);
@@ -26,6 +27,7 @@ export function Teach({ onRecord }: { onRecord: () => void }) {
         <h1>Teach Mode</h1>
         <p>Grounded in the confirmed Work Map for {data.session.title}.</p>
       </header>
+      <CloudConsent />
       <div className="segmented">
         <button
           aria-pressed={mode === "practice"}

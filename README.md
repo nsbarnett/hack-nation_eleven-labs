@@ -1,8 +1,39 @@
 # AI Apprentice
 
-AI Apprentice is a desktop application for turning an expert's real work into teachable knowledge. It records a selected screen or window, accepts the expert's notes, asks questions about consequential actions during natural pauses, and builds an evidence-linked **Work Map**. A confirmed map can then support practice exercises and advisory coaching for a trainee.
+AI Apprentice turns an expert's real work into teachable knowledge. It records a selected screen or window, accepts the expert's notes, asks questions about consequential actions during natural pauses, and builds an evidence-linked **Work Map**. A confirmed map can then support practice exercises and advisory coaching for a trainee.
 
-The current application is **v0.2.0**. Its main window and independent floating assistant are built with Electron. A bundled Python service handles session data, AI analysis, voice requests, and teaching logic. A fresh installation opens with empty states; the application does not ship example workflows, conversations, screenshots, or exercises.
+There are now two entry points: the **browser edition (0.3.0)** for a Replit-hosted Capture → Work Map → Teach experience, and the **Electron desktop edition (0.2.0)** with an independent floating assistant. Both reuse the React interface and Python learning pipeline. New workspaces start empty; no example workflows, conversations, screenshots, or exercises are seeded into either application.
+
+## Browser edition and Replit
+
+The browser edition serves the built React app and FastAPI together on a Replit Reserved VM. Judges use a private guest workspace without creating an account or supplying provider keys. Deployment configuration is included in `.replit`; see the [Replit setup, module guide, and acceptance checklist](docs/REPLIT.md). A published URL and real-provider acceptance must be verified before submission; local tests do not establish that the deployment is live.
+
+| Capability | Browser edition | Desktop edition |
+| --- | --- | --- |
+| Recording | User-initiated Chrome/Edge sharing prompt; five-minute workflows; WebM chunks in IndexedDB, up to 100 MB per workflow | Electron source picker; local WebM files |
+| Text and maps | Guest-scoped PostgreSQL; inactive workflows expire after seven days | Local SQLite |
+| AI credentials | Owner's server-side Replit Secrets | OS-encrypted keys entered in Settings |
+| Screenshots | Browser-local; selected frames sent only with cloud consent; server caches at most three frames per guest in memory | Session-owned local files; optional cloud analysis |
+| Assistant | Questions and controls in the page; optional ElevenLabs speech while page is open | Page and independent floating desktop orb |
+| Export | Session/Work Map JSON and individual video downloads | Markdown, HTML, JSON, and media |
+| Import | No legacy import | One-time import of earlier live sessions |
+
+Browser **Settings** shows managed connection availability, storage information, and deletion of the open workflow and local media. It never asks judges for API keys. **Library** plays and downloads browser-local videos. **Work Map** and **Teach** include an AI consent toggle. Other screens below serve the same Capture → Review → Teach flow in both editions. Browser coaching uses screen sharing and in-page questions; it cannot float over other programs or inspect global keyboard activity.
+
+For local web development (Python 3.12 and Node 22+):
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-web.txt
+cd app
+npm ci
+npm run build:web
+cd ..
+$env:APP_ENV = 'development'
+.\.venv\Scripts\python.exe -m backend.web
+```
+
+Open `http://localhost:3000` directly in Chrome or Edge. Development uses SQLite when `DATABASE_URL` is absent. Production refuses to start without PostgreSQL and a stable `GUEST_SECRET`. Do not publish in development mode. Recording and manual notes work without AI keys; model-dependent controls explain missing configuration instead of inventing results.
 
 ## What is available now
 
@@ -39,8 +70,8 @@ The **recording setup dialog** asks for a workflow title, optional context, a re
 | Desktop shell | Electron and TypeScript; native windows, overlay placement, source selection, permissions, file writes, process lifecycle, and narrow IPC handlers. |
 | Interface | React 19, Vite, Tailwind CSS 4, Radix/shadcn controls, Lucide icons, Motion transitions, and Zustand state. |
 | Capture | Chromium `getDisplayMedia` and `MediaRecorder`; browser WebM segments, sampled JPEG frames, and explicit microphone capture. |
-| Local service | Python 3.12, FastAPI, Uvicorn, Pydantic, Pillow, HTTPX, and the OpenAI SDK. |
-| Storage | SQLite session snapshots and session-owned media files; a dedicated repository worker serializes database operations. |
+| Service | Python 3.12, FastAPI, Uvicorn, Pydantic, Pillow, HTTPX, and the OpenAI SDK; separate desktop and hosted entry points. |
+| Storage | Desktop SQLite/media files; hosted PostgreSQL via psycopg for guest text and browser IndexedDB for media. Dedicated workers serialize database operations. |
 | AI and voice | OpenAI for observation, questions, knowledge drafts, exercises, and tutoring; ElevenLabs HTTP APIs for text-to-speech and speech-to-text. |
 | Distribution and tests | PyInstaller bundles the Python sidecar; electron-builder creates desktop packages. Pytest, Vitest, and Playwright exercise the service, renderer, and native Windows flows. |
 
@@ -95,8 +126,8 @@ On macOS, replace the Windows Python path with `.venv/bin/python`. Packages are 
 
 ## Verification and current limits
 
-The most recent local checks passed **60 Python tests**, **4 renderer/voice tests**, and **2 desktop tests against the packaged Windows executable**, including real display capture, minimize, pause/resume, note persistence, and overlay controls. The packaged Python service also passed an isolated startup check. See [testing details and outstanding release checks](docs/TESTING.md).
+The hosted checks passed **72 Python tests** and **3 Edge browser tests**. Browser tests use test-only provider responses and a canvas capture source while exercising real MediaRecorder, IndexedDB, and the API. They cover permission denial, navigation, pause/resume, notes, debrief, map confirmation, teaching, reload, deletion, and guest isolation. Earlier desktop validation passed **4 renderer/voice tests** and **2 tests against the packaged Windows executable**, including real display capture and overlay controls. See [testing details and outstanding release checks](docs/TESTING.md).
 
-Live OpenAI and ElevenLabs sessions require the user's own credentials and were not exercised in that packaged acceptance run. macOS packages have not been verified on this Windows host. The Windows installer is unsigned. The application does not record system audio, redact sensitive screen content automatically, sync sessions to a cloud account, or control external applications. Once cloud analysis or voice data has been sent to a provider, turning it off cannot recall that earlier request.
+Live OpenAI and ElevenLabs calls require configured credentials (owner-provided in the hosted edition) and were not exercised in that packaged acceptance run. macOS packages have not been verified on this Windows host. The Windows installer is unsigned. Neither edition records system audio, redacts sensitive screen content automatically, provides cross-device account sync, or controls external applications. Once cloud analysis or voice data has been sent to a provider, turning it off cannot recall that request.
 
 Additional documentation: [development and troubleshooting](docs/DEVELOPMENT.md) and [visual design rules](docs/UI_DESIGN.md).

@@ -3,6 +3,7 @@ import { Check, Download, GitBranch, Pencil, Sparkles } from "lucide-react";
 import { useApp, run } from "../stores";
 import { Button, Empty, Modal } from "../components/Controls";
 import type { Knowledge } from "../types";
+import { CloudConsent } from "../components/CloudConsent";
 const fields = [
   "action",
   "decision",
@@ -59,6 +60,7 @@ export function WorkMap() {
           {session.confirmed ? "Confirmed" : "Confirm reviewed map"}
         </Button>
       </div>
+      <CloudConsent />
       <div className="map-list">
         {session.knowledge.map((item, index) => (
           <section key={item.id} className="panel map-step">

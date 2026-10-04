@@ -43,6 +43,7 @@ export function App() {
   const [setup, setSetup] = useState(false),
     [newWorkflow, setNewWorkflow] = useState(true);
   const recording = useMedia((s) => s.status.state);
+  const notice = useApp((s) => s.notice);
   function record(fresh = true) {
     void window.desktop.window("open");
     setNewWorkflow(fresh);
@@ -78,7 +79,7 @@ export function App() {
       <div className="startup">
         <AudioLines size={36} />
         <h2>Opening Apprentice…</h2>
-        {error && <p role="alert">{error}</p>}
+        {error && <><p role="alert">{error}</p><button className="button" onClick={() => { useApp.setState({ error: "" }); void useApp.getState().refresh(); }}>Try again</button></>}
       </div>
     );
   const pages: Record<Page, React.ReactNode> = {
@@ -92,13 +93,13 @@ export function App() {
     Settings: <Settings />,
   };
   return (
-    <div className="app-shell">
-      <div
+    <div className={`app-shell ${window.desktop.platform === "web" ? "web-shell" : ""}`}>
+      {window.desktop.platform !== "web" && <div
         className={`titlebar ${window.desktop.platform === "darwin" ? "mac" : ""}`}
       >
         <span>AI Apprentice</span>
         <span className="titlebar-subtitle">Capture. Understand. Teach.</span>
-      </div>
+      </div>}
       <aside className="sidebar">
         <a
           className="brand"
@@ -150,6 +151,7 @@ export function App() {
         </div>
       </aside>
       <main className="main-content">
+        {notice && <div className="notice-banner" role="status"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => useApp.setState({ notice: "" })}><X size={16} /></button></div>}
         {error && (
           <div className="error-banner" role="alert">
             <span>{error}</span>

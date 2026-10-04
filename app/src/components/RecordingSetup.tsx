@@ -18,7 +18,8 @@ export function RecordingSetup({
     [cloud, setCloud] = useState(false),
     [sources, setSources] = useState<Source[]>([]),
     [source, setSource] = useState<Source | null>(null),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [issue, setIssue] = useState("");
   async function loadSources() {
     try {
       setSources(await window.desktop.sources());
@@ -28,15 +29,21 @@ export function RecordingSetup({
   }
   async function begin() {
     setBusy(true);
+    setIssue("");
+    let captured: MediaStream | undefined;
     try {
-      if (!source) throw new Error("Choose a screen or window.");
+      if (window.desktop.platform === "web") {
+        if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("Screen sharing requires Chrome or Edge on a desktop computer.");
+        captured = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: false });
+      } else if (!source) throw new Error("Choose a screen or window.");
       if (newWorkflow)
         await useApp.getState().command("new", { title, context, cloud });
-      await startRecording(source);
+      await startRecording(source || undefined, captured);
       useApp.getState().go("Record");
       onChange(false);
     } catch (error) {
-      report(error);
+      captured?.getTracks().forEach((track) => track.stop());
+      setIssue(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
@@ -46,7 +53,7 @@ export function RecordingSetup({
       open={open}
       onChange={onChange}
       title={newWorkflow ? "Record a workflow" : "Choose what to capture"}
-      description="Your recording stays on this computer. Choose whether to share sampled screens with AI."
+      description={window.desktop.platform === "web" ? "Video and screenshots stay in this browser. Notes and Work Maps are saved online for seven days. Choose whether selected screens may be sent for AI analysis." : "Your recording stays on this computer. Choose whether to share sampled screens with AI."}
     >
       {newWorkflow && (
         <>
@@ -75,7 +82,7 @@ export function RecordingSetup({
           />
         </>
       )}
-      <div className="section-heading">
+      {window.desktop.platform !== "web" && <><div className="section-heading">
         <h3>Screen or window</h3>
         <Button onClick={() => void loadSources()}>
           <Monitor size={15} />
@@ -97,13 +104,14 @@ export function RecordingSetup({
           </button>
         ))}
       </div>
+      </>}
       <p className="muted small">
-        Screen and microphone permissions are managed by your operating system.
-        System audio is not recorded.
+        {window.desktop.platform === "web" ? "The browser will ask you to choose a screen or window. Keep this tab open. Capture is limited to five minutes and 100 MB per workflow." : "Screen and microphone permissions are managed by your operating system."} System audio is not recorded.
       </p>
+      {issue && <p className="error-banner" role="alert">{issue}</p>}
       <Button
         className="primary full"
-        disabled={busy || !source || (newWorkflow && !title.trim())}
+        disabled={busy || (window.desktop.platform !== "web" && !source) || (newWorkflow && !title.trim())}
         onClick={() => void begin()}
       >
         {busy ? "Starting…" : "Start recording"}

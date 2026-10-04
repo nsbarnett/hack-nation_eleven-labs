@@ -87,7 +87,7 @@ export async function voiceNote() {
   if (useMedia.getState().status.state === "paused")
     throw new Error("Resume before recording an answer.");
   if (!useApp.getState().data?.credentials.elevenlabs)
-    throw new Error("Add an ElevenLabs key in Settings first.");
+    throw new Error(window.desktop.platform === "web" ? "The hosted ElevenLabs connection is unavailable. Type your answer or contact the app owner." : "Add an ElevenLabs key in Settings first.");
   cancelVoice();
   const generation = voiceGeneration;
   const capturedStream = await navigator.mediaDevices.getUserMedia({
@@ -161,16 +161,21 @@ async function sendFrame() {
     frameBusy = false;
   }
 }
-export async function startRecording(selected?: Source) {
+export async function startRecording(selected?: Source, preparedStream?: MediaStream) {
   if (recorder || stopping) return;
   const current = useApp.getState().data?.session;
   if (!current) throw new Error("Create a workflow first.");
   if (selected) source = selected;
+  const hosted = window.desktop.platform === "web";
+  if (!source && hosted) source = { id: "browser", name: "Shared screen", thumbnail: "", displayId: "" };
   if (!source) throw new Error("Choose a screen or window.");
   if (useMedia.getState().status.state === "idle")
     accumulated = current.duration;
-  await window.desktop.selectSource(source.id);
-  stream = await navigator.mediaDevices.getDisplayMedia({
+  if (hosted && accumulated >= 300) { preparedStream?.getTracks().forEach((t) => t.stop()); throw new Error("This workflow reached the five-minute capture limit. Start a new workflow to record more."); }
+  // In a browser, invoke capture in the original click handler before any
+  // network await, otherwise transient user activation can expire.
+  if (!hosted) await window.desktop.selectSource(source.id);
+  stream = preparedStream || await navigator.mediaDevices.getDisplayMedia({
     video: { frameRate: 15 },
     audio: false,
   });
@@ -234,10 +239,17 @@ export async function startRecording(selected?: Source) {
     useMedia.setState({
       stream,
       sourceName: source.name,
-      safePreview: source.id.startsWith("window:"),
+      safePreview: hosted ? stream.getVideoTracks()[0].getSettings().displaySurface === "window" : source.id.startsWith("window:"),
     });
     status({ state: "recording", duration: elapsed() });
-    timer = setInterval(() => status({ duration: elapsed() }), 1000);
+    timer = setInterval(() => {
+      status({ duration: elapsed() });
+      if (hosted && elapsed() >= 300) {
+        accumulated = Math.min(accumulated, 300);
+        useApp.setState({ notice: "The five-minute hosted capture limit was reached. Your completed media is saved in this browser." });
+        void stopRecording();
+      }
+    }, 1000);
     sample = setInterval(() => void sendFrame(), 2000);
   } catch (error) {
     stream?.getTracks().forEach((t) => t.stop());
@@ -256,7 +268,7 @@ export async function stopRecording(paused = false) {
   cancelVoice();
   clearInterval(timer);
   clearInterval(sample);
-  accumulated = elapsed();
+  accumulated = window.desktop.platform === "web" ? Math.min(300, elapsed()) : elapsed();
   try {
     // Stop tracks immediately for privacy; still flush the recorder's final chunk.
     if (recorder && recorder.state !== "inactive") {

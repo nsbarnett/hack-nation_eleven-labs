@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Library as LibraryIcon,
   Image,
@@ -11,6 +11,9 @@ import { Button, Empty, Modal, IconButton } from "../components/Controls";
 export function Library() {
   const session = useApp((s) => s.data?.session);
   const [image, setImage] = useState<string | null>(null);
+  const [video, setVideo] = useState<string | null>(null);
+  useEffect(() => () => { if (image?.startsWith("blob:")) URL.revokeObjectURL(image); }, [image]);
+  useEffect(() => () => { if (video?.startsWith("blob:")) URL.revokeObjectURL(video); }, [video]);
   const [reference, setReference] = useState("");
   if (!session)
     return (
@@ -53,11 +56,12 @@ export function Library() {
       <div className="section-heading">
         <h2>Recordings</h2>
       </div>
+      {window.desktop.platform === "web" && <p className="muted small">Media is stored only in the browser where it was captured. Use the video player's download control to keep a copy.</p>}
       {session.recordings.map((file) => (
         <button
           className="panel media-row"
           key={file}
-          onClick={() => run(() => window.desktop.media(file))}
+          onClick={() => run(async () => { const url = await window.desktop.media(file); if (url) setVideo(url); })}
         >
           <Video size={18} />
           <span>{file}</span>
@@ -106,6 +110,14 @@ export function Library() {
           </Empty>
         )}
       </div>
+      <Modal
+        open={!!video}
+        onChange={() => setVideo(null)}
+        title="Local recording"
+        description="This recording is stored in this browser."
+      >
+        {video && <><video className="evidence-image" src={video} controls /><a href={video} download="apprentice-recording.webm">Download recording</a></>}
+      </Modal>
       <Modal
         open={!!image}
         onChange={() => setImage(null)}

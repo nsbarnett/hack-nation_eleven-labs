@@ -36,6 +36,23 @@ class Repository:
             return result
         return await self.call(read)
 
+    def clear_media_cache(self):
+        """Desktop evidence is durable; the hosted repository clears transient frames."""
+
+    async def has_recording(self, sid, filename):
+        return await self.call(self.store.media(sid, filename).is_file)
+
+    async def remove_media(self, sid, paths):
+        for relative in paths:
+            await self.call(self.store.media(sid, relative).unlink, True)
+
+    async def save_frame(self, sid, filename, payload):
+        await self.call(self.store.media(sid, filename).write_bytes, payload)
+
+    async def images(self, session, kind):
+        sources = [e for e in session.evidence if e.kind == kind and e.image][-3:]
+        return [(e.id, await self.call(self.store.media(session.id, e.image).read_bytes)) for e in sources]
+
     async def import_legacy(self, root):
         def migrate():
             origin = Path(root).resolve()

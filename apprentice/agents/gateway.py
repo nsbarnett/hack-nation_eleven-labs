@@ -24,14 +24,14 @@ class Gateway:
     def __init__(self, settings: Settings):
         self.settings = settings
 
-    def request(self, schema, instructions: str, data: dict, images: list[tuple[str, Path]] | None = None):
+    def request(self, schema, instructions: str, data: dict, images: list[tuple[str, Path | bytes]] | None = None):
         if not self.settings.openai_key:
             raise ValueError("Set OPENAI_API_KEY in .env and restart to use live AI. Recording and manual notes still work.")
         content = [{"type": "input_text", "text": json.dumps(data, ensure_ascii=False)}]
         for evidence_id, path in (images or [])[:4]:
             content.extend([
                 {"type": "input_text", "text": f"Screenshot evidence ID: {evidence_id}"},
-                {"type": "input_image", "image_url": "data:image/jpeg;base64," + base64.b64encode(path.read_bytes()).decode(), "detail": "high"},
+                {"type": "input_image", "image_url": "data:image/jpeg;base64," + base64.b64encode(path if isinstance(path, bytes) else path.read_bytes()).decode(), "detail": "high"},
             ])
         with OpenAI(api_key=self.settings.openai_key, timeout=35, max_retries=1) as client:
             result = client.responses.parse(

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { KeyRound, FolderInput, ShieldCheck, Check } from "lucide-react";
 import { useApp, run } from "../stores";
 import { Button } from "../components/Controls";
+import { WebSettings } from "../web/WebSettings";
 export function Settings() {
   const data = useApp((s) => s.data)!;
   const [openai, setOpenai] = useState(""),
@@ -25,6 +26,7 @@ export function Settings() {
       setBusy(false);
     }
   }
+  if (window.desktop.platform === "web") return <WebSettings />;
   return (
     <>
       <header className="page-heading compact">
