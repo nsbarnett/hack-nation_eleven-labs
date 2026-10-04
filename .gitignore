@@ -38,6 +38,8 @@ dist/
 /screenshots/
 /sessions/
 /exports/
+/app-data/
+/.artifacts/
 *.log
 
 # Editor and OS files
@@ -50,3 +52,10 @@ Desktop.ini
 # Local assistant configuration
 .codex/
 .agents/
+
+# Electron dependencies, packages and test artifacts
+node_modules/
+app/dist-electron/
+release/
+test-results/
+playwright-report/
