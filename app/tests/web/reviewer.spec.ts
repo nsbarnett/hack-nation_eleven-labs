@@ -123,6 +123,10 @@ test("approved analysis surfaces one supported screen question and keeps its out
   await expect(popup).toContainText("You changed cost center from 4711 to 0400.");
   await expect(page.getByRole("button", { name: "Analyze approved frames" })).toBeEnabled();
   expect(uploads).toBe(2);
+  const completed = await (await page.request.get("/api/state")).json();
+  expect(completed.session.knowledge).toHaveLength(1);
+  expect(completed.session.privacy.map_revision).toBe(completed.session.privacy.revision);
+  await expect(page.getByRole("navigation").getByRole("button", { name: "Privacy Review", exact: true })).not.toContainText("Action needed");
   const first = (await (await page.request.get("/api/state")).json()).question.id;
   await popup.getByRole("button", { name: "Open Debrief" }).click();
   await expect(page.getByRole("heading", { name: "What should someone else know?", exact: true })).toBeVisible();
@@ -220,4 +224,48 @@ test("deleting an inactive workflow preserves the active one and retries failed 
   expect(retained).toBeUndefined();
   await page.reload();
   expect((await (await page.request.get("/api/state")).json()).cloud).toBe(true);
+});
+
+test("privacy actions are discoverable and bulk rejection never approves or uploads", async ({ page }) => {
+  let uploads = 0;
+  page.on("request", (r) => { if (r.url().includes("/api/reviewed-frame")) uploads++; });
+  await start(page, "Privacy action guidance");
+  await page.waitForTimeout(1400);
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  const nav = page.getByRole("navigation").getByRole("button", { name: "Privacy Review", exact: true });
+  await expect(nav).toContainText("Action needed");
+  await page.getByRole("navigation").getByRole("button", { name: "Home", exact: true }).click();
+  await expect(page.locator(".workflow-privacy-action")).toContainText("Review and approve");
+  await page.getByRole("button", { name: "Review privacy", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Render redacted copy" })).toBeEnabled();
+  await page.evaluate(async () => {
+    const state = await window.desktop.state();
+    const db = await new Promise<IDBDatabase>((resolve) => { const r = indexedDB.open("apprentice-media-v1", 2); r.onsuccess = () => resolve(r.result); });
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction("reviews", "readwrite"), store = tx.objectStore("reviews");
+      const r = store.get([state.guest!, state.session!.id]);
+      r.onsuccess = () => { const draft = r.result; draft.markers = [0.1, 0.3].map((time, i) => ({ id: `synthetic-${i}`, segment: draft.segments[0].name, time, category: "Synthetic detection", decision: "pending" })); store.put(draft); };
+      tx.oncomplete = () => resolve();
+    });
+    db.close();
+    window.dispatchEvent(new CustomEvent("privacy-change", { detail: state.session!.id }));
+  });
+  await expect(page.getByRole("button", { name: "Render redacted copy" })).toBeDisabled();
+  await expect(page.getByRole("checkbox")).toBeDisabled();
+  await page.getByRole("button", { name: "Reject all suggestions", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Reopen", exact: true })).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Render redacted copy" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Approve reviewed recording" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Analyze approved frames" })).toBeDisabled();
+  expect(uploads).toBe(0);
+  expect((await (await page.request.get("/api/state")).json()).session.privacy.status).toBe("unreviewed");
+  const style = await page.getByRole("button", { name: "Render redacted copy" }).evaluate((el) => getComputedStyle(el).userSelect);
+  expect(style).toBe("none");
+  await page.getByRole("button", { name: "Reopen", exact: true }).first().click();
+  await expect(page.getByRole("button", { name: "Render redacted copy" })).toBeDisabled();
+  await page.getByRole("button", { name: "Reject all suggestions", exact: true }).click();
+  await page.getByRole("button", { name: "Render redacted copy" }).click();
+  await expect(page.getByRole("checkbox")).toBeEnabled();
+  await page.screenshot({ path: "../.artifacts/privacy-flow-guidance.png", fullPage: true });
+  await page.locator(".privacy-approve").screenshot({ path: "../.artifacts/privacy-review-actions.png" });
 });

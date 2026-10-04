@@ -174,6 +174,8 @@ class Service:
                 raise ValueError("Give this workflow a title of 1–200 characters.")
             self.invalidate()
             self.session = Session(title=title, context=str(data.get("context", ""))[:12000])
+            if self.session.context.strip():
+                self.session.evidence.append(Evidence(kind="note", text=self.session.context.strip()))
             self.cloud = bool(data.get("cloud", False))
             self.practice = {"items": [], "answers": {}}
             self.observed_at = {}
@@ -325,6 +327,8 @@ class Service:
                 self.session.knowledge = items
                 self.session.confirmed = False
                 self.session.phase = "review"
+                if self.session.privacy.status == "approved" and self.session.privacy.analyzed_frames:
+                    self.session.privacy.map_revision = self.session.privacy.revision
                 self.practice = {"items": [], "answers": {}}
                 self.session.messages.append(Message(role="assistant", text=teach_back + ("\n\nUnresolved: " + "; ".join(gaps) if gaps else "")))
             async def build(run):

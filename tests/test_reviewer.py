@@ -173,3 +173,44 @@ def test_failed_delete_retains_active_workflow_and_question_for_retry(tmp_path, 
         monkeypatch.setattr(service.repo, "delete", original)
         assert command(c, "delete-session", payload).status_code == 200
         assert state(c)["session"] is None
+
+def test_context_is_evidence_and_recording_stop_preserves_question(tmp_path, monkeypatch):
+    def assess(self, session):
+        ev.refresh(session)
+        session.evaluation.assessed_evidence_ids = [e.id for e in session.evidence]
+        return session.evaluation
+    monkeypatch.setattr(Assessor, "run", assess)
+    with TestClient(make_app(tmp_path, settings=Settings(openai_key="fixture")), headers=HEADERS) as c:
+        state(c)
+        command(c, "new", {"title": "Context handoff", "context": "I changed the classification without explaining the rule."})
+        assert state(c)["session"]["evidence"][0]["text"].startswith("I changed")
+        command(c, "recording", {"state": "recording"})
+        command(c, "reviewer", {"enabled": True, "presentation": "both"})
+        command(c, "reviewer-tick", {"duration": 5, "available": True})
+        idle(c)
+        command(c, "reviewer-tick", {"duration": 7, "available": True})
+        question = state(c)["question"]
+        assert question and question["phase"] == "live"
+        command(c, "recording", {"state": "idle", "duration": 8})
+        after = state(c)
+        assert after["question"]["id"] == question["id"]
+        assert after["question"]["phase"] == "debrief"
+        command(c, "recover", {})
+        assert state(c)["question"]["id"] == question["id"]
+
+
+def test_workflow_list_tracks_required_privacy_action(tmp_path):
+    with TestClient(make_app(tmp_path), headers=HEADERS) as c:
+        state(c)
+        command(c, "new", {"title": "Required action"})
+        assert state(c)["sessions"][0]["privacy_action"] is None
+        command(c, "local-segment", {"filename": "a" * 32 + ".webm", "start": 0, "duration": 10})
+        assert state(c)["sessions"][0]["privacy_action"] == "review"
+        command(c, "privacy-approve", {"revision": 0})
+        assert state(c)["sessions"][0]["privacy_action"] == "analyze"
+        snapshot = state(c)
+        service = c.app.state.runtime.guests[snapshot["guest"]].service
+        service.session.privacy.question_revision = 0
+        service.session.privacy.map_revision = 0
+        command(c, "note", {"text": "Retained explanation"})
+        assert state(c)["sessions"][0]["privacy_action"] is None

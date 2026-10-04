@@ -3,6 +3,7 @@ import { useApp, run } from "../stores";
 import { Button, Empty } from "../components/Controls";
 import { AssistantPanel } from "../components/AssistantPanel";
 import { EvaluationPanel } from "../components/EvaluationPanel";
+import { CapturedContext } from "../components/CapturedContext";
 export function Debrief() {
   const data = useApp((s) => s.data)!;
   if (!data.session)
@@ -56,6 +57,7 @@ export function Debrief() {
         <AssistantPanel />
       </div>
       <EvaluationPanel />
+      <CapturedContext />
     </>
   );
 }

@@ -79,7 +79,8 @@ test("capture survives navigation; local media, debrief, map review and teach co
   expect(videoUploads.every(url => url.includes('/api/reviewed-frame'))).toBe(true);
   await page.getByRole("navigation").getByRole("button", { name: "Debrief", exact: true }).click();
   await page.getByRole("button", { name: "Ask the next question" }).click();
-  await expect(page.getByText("What makes this check necessary?").first()).toBeVisible();
+  // Automatic map generation makes its unresolved guardrail the highest priority.
+  await expect(page.getByRole("complementary", { name: "Reviewer question" })).toContainText("What needs to be resolved before this can proceed?");
   await page.getByLabel("Add a note or answer").fill("It prevents proceeding with incomplete input.");
   await page.getByRole("button", { name: "Send note" }).click();
   await page.getByRole("navigation").getByRole("button", { name: "Work Map", exact: true }).click();

@@ -41,7 +41,7 @@ export type Evaluation = {
 };
 export type Workflow = {
   reviewer?: { enabled: boolean; presentation: "text" | "voice" | "both" };
-  privacy: { revision: number; status: "unreviewed" | "approved"; analyzed_frames?: string[]; question_revision?: number };
+  privacy: { revision: number; status: "unreviewed" | "approved"; analyzed_frames?: string[]; question_revision?: number; map_revision?: number };
   id: string;
   title: string;
   context: string;
@@ -76,6 +76,7 @@ export type State = {
     confirmed: boolean;
     steps: number;
     duration: number;
+    privacy_action?: "review" | "analyze" | null;
   }[];
   cloud: boolean;
   recording: string;

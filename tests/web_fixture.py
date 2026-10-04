@@ -36,7 +36,7 @@ def request(self, schema, instructions, data, images=None):
     if schema is QuestionResult:
         return QuestionResult(question="What makes this check necessary?", evidence_ids=[data["evidence"][0]["id"]])
     if schema is MapResult:
-        source = next(e for e in data["evidence"] if e["kind"] == "note")
+        source = next((e for e in data["evidence"] if e["kind"] == "note"), data["evidence"][0])
         if data["task"] == "Structured evaluation workflow":
             return MapResult(items=[DraftKnowledge(title="Classify at the threshold", action="Inspect amount and currency",
                 decision="CAPEX for EUR purchases at least 5000", reason=source["text"], rule="EUR purchases at least 5000 require CAPEX",

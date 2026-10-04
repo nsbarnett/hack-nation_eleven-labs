@@ -34,6 +34,7 @@ class HostedService(Service):
         session.privacy.revision += 1
         session.privacy.analyzed_frames = []
         session.privacy.question_revision = -1
+        session.privacy.map_revision = -1
         session.evidence = [e for e in session.evidence if e.kind not in {"screen", "trainee_screen"}]
         session.observations = []
         session.knowledge = []
@@ -44,8 +45,10 @@ class HostedService(Service):
 
     async def launch(self, role, work, apply):
         session = self.require_session()
-        note_interjection = role == "assessment" and self.recording == "recording" and session.reviewer.enabled
-        if not note_interjection and (session.recordings or self.recording != "idle" or any(e.image for e in session.evidence)) and session.privacy.status != "approved":
+        # Stored local recording identifiers are not screen evidence. Text-only
+        # evaluation remains usable before approval; visual evidence never does.
+        screen_based = role == "observer" or bool(session.observations) or any(e.image for e in session.evidence)
+        if screen_based and session.privacy.status != "approved":
             raise ValueError("Review and approve the recording's privacy edits before using screen-based AI.")
         if not self.settings.openai_key:
             raise ValueError("The hosted OpenAI connection is unavailable. Manual notes and recording still work.")
@@ -144,6 +147,12 @@ class HostedService(Service):
                     if self.recording not in {"idle", "paused"}:
                         raise ValueError("Invalid recording transition.")
                     self.clear_screen_derivatives()
+                if data.get("state") in {"paused", "idle"} and self.question:
+                    # Stop/pause must not cancel an unanswered reviewer question.
+                    # Keep it in the evaluation history for Debrief.
+                    for attempt in self.session.evaluation.attempts:
+                        if attempt.id == self.question["id"]:
+                            attempt.state = "deferred"
             if name == "local-frame":
                 if self.recording != "recording":
                     return {}
@@ -185,6 +194,12 @@ class HostedService(Service):
             runtime = await self.repo.runtime(data["id"]) if name == "open" else None
             result = await self._command(name, data)
             self.cloud = True
+            if name == "recording" and data.get("state") == "idle":
+                pending = next((a for a in reversed(self.session.evaluation.attempts) if a.state == "deferred"), None)
+                if pending:
+                    pending.state, pending.phase = "asking", "debrief"
+                    self.restore_question()
+                    await self.persist()
             if name == "forget":
                 self.clear_screen_derivatives()
                 await self.persist()

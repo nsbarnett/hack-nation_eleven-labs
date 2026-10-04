@@ -125,11 +125,22 @@ export function App() {
           {[...navigation, ...(window.desktop.platform === "web" ? [{ name: "Privacy Review" as Page, icon: ShieldCheck }] : [])].map(({ name, icon: Icon }) => (
             <button
               key={name}
+              aria-label={name}
+              aria-describedby={name === "Privacy Review" && data.sessions.some((s) => s.privacy_action) ? "privacy-nav-action" : undefined}
               className={page === name ? "selected" : ""}
-              onClick={() => go(name)}
+              onClick={() => run(async () => {
+                if (name === "Privacy Review" && recording === "idle" && !data.sessions.some((s) => s.id === data.session?.id && s.privacy_action)) {
+                  const pending = data.sessions.find((s) => s.privacy_action);
+                  if (pending && pending.id !== data.session?.id) await useApp.getState().command("open", { id: pending.id });
+                }
+                go(name);
+              })}
             >
               <Icon size={17} />
               {name}
+              {name === "Privacy Review" && data.sessions.some((s) => s.privacy_action) && (
+                <span id="privacy-nav-action" className="nav-action-required" title="Review and analyze this recording to receive screen-based steps and questions">Action needed</span>
+              )}
               {name === "Record" && recording === "recording" && (
                 <span className="nav-record-dot" />
               )}

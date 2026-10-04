@@ -119,7 +119,12 @@ class GuestRepository:
         for sid, updated, payload in rows:
             item = Session.model_validate_json(payload)
             result.append({"id": sid, "updated": updated, "title": item.title,
-                           "confirmed": item.confirmed, "steps": len(item.knowledge), "duration": item.duration})
+                             "confirmed": item.confirmed, "steps": len(item.knowledge), "duration": item.duration,
+                             "privacy_action": ("review" if item.privacy.status != "approved" else
+                                                "analyze" if item.privacy.question_revision != item.privacy.revision or
+                                                ((item.observations or any(e.text and not e.kind.startswith("trainee") for e in item.evidence))
+                                                 and item.privacy.map_revision != item.privacy.revision) else None)
+                                               if item.recordings else None})
         return result
 
     async def delete(self, sid):

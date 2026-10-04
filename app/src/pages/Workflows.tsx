@@ -3,6 +3,7 @@ import { GitBranch, Search, ArrowUpRight } from "lucide-react";
 import { useApp, run } from "../stores";
 import { Empty, Button } from "../components/Controls";
 import { DeleteWorkflow } from "../components/DeleteWorkflow";
+import { PrivacyAction } from "../components/PrivacyAction";
 export function Workflows({ onRecord }: { onRecord: () => void }) {
   const [query, setQuery] = useState("");
   const sessions = useApp((s) => s.data!.sessions);
@@ -54,6 +55,7 @@ export function Workflows({ onRecord }: { onRecord: () => void }) {
                 {s.confirmed ? "Expert confirmed" : "Draft"}
               </span>
             </button>
+            <PrivacyAction workflow={s} />
             <DeleteWorkflow workflow={s} />
             </article>
           ))}

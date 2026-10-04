@@ -8,6 +8,7 @@ import {
 import { useApp, run } from "../stores";
 import { Button, Empty } from "../components/Controls";
 import { DeleteWorkflow } from "../components/DeleteWorkflow";
+import { PrivacyAction } from "../components/PrivacyAction";
 export function Home({ onRecord }: { onRecord: () => void }) {
   const sessions = useApp((s) => s.data!.sessions);
   const go = useApp((s) => s.go);
@@ -79,6 +80,7 @@ export function Home({ onRecord }: { onRecord: () => void }) {
               <ArrowRight size={16} />
             </button>
             <DeleteWorkflow workflow={s} />
+            <PrivacyAction workflow={s} />
             </div>
           ))}
         </div>

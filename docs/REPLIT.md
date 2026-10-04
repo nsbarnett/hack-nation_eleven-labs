@@ -122,3 +122,15 @@ Before submission, at the **published URL**:
 - Inspect production database persistence across a restart. Check actual quotas and production logs without logging cookies, keys, frame payloads or note content.
 
 Common issues: 503 on `/` means the UI has not been built; startup failure usually means missing production DB/secret; 403 means Origin/host or HTTPS mismatch; unavailable speech means missing/invalid owner ElevenLabs configuration. A second open tab intentionally asks you to use the first tab. Open the public URL directly for screen sharing; browser-embedded previews may restrict permissions. Model requests can time out and show an error without generated content. Replit billing/publishing and live-provider acceptance are external deployment steps, not guaranteed by a passing local build.
+
+## Privacy review and usable results (2026-10-04)
+
+Browser workflow summaries expose `privacy_action` so Home, Workflows, and navigation can show an action-required notice. A recording stays pending until review, rendering, explicit approval, and approved-frame analysis finish. A failed map stage remains actionable. Text-only workflows do not receive a privacy-review warning.
+
+Privacy Review presents four ordered stages, one current primary action, explicit reasons for unavailable actions, consistent button sizing, and keyboard focus states. Button labels are not selectable; notes and explanatory text remain selectable. Reject all suggestions dismisses pending detections across all segments, preserves existing covers, invalidates any prior approval through the normal edit path, and does not upload frames or approve the recording. Each rejected finding can be reopened. Optional deletion of originals is separated under a disclosure.
+
+After approved-frame analysis, a Work Map is generated automatically when observations or expert text support one. `map_revision` prevents a repeated Analyze action from rebuilding an already completed revision. Frame observations and questions survive a map failure, and retry does not upload already analyzed frames again. No observations or explanations means no fabricated map; Debrief explains the missing input and shows retained context and notes.
+
+Workflow setup context is retained as expert text evidence for new workflows. Notes-only AI can run while a local recording awaits approval, but screen evidence remains gated by approval. An unanswered live reviewer question is retained for Debrief on stop. During recording the reviewer explicitly indicates when it needs a note; recording pixels alone still cannot trigger live questions under the selected privacy policy.
+
+Validation includes Python regressions for context-to-question handoff, stop/reload persistence, and workflow privacy status; browser coverage for Home/navigation notices, bulk rejection and reopening, disabled approval before rendering, no uploads on rejection, and automatic Work Map creation. Live Replit OpenAI was checked using a synthetic note, not tester content.

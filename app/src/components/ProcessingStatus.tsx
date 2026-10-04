@@ -15,7 +15,7 @@ export function ProcessingStatus() {
   return <div className="notice-banner processing-status" role="status" aria-live="polite">
     <LoaderCircle className="processing-spinner" size={19} />
     <span><strong>Context processing</strong><br />{local || labels[stage!] || "Preparing results…"}</span>
-    {local && <progress aria-label={job.label} max={1} value={job.label.startsWith("Evaluating context") ? undefined : job.progress} />}
+    {local && <progress aria-label={job.label} max={1} value={job.label.startsWith("Evaluating context") || job.label.startsWith("Building process") ? undefined : job.progress} />}
   </div>;
 }
 

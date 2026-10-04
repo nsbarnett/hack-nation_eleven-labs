@@ -571,7 +571,26 @@ export async function analyzeReview(draft: Review) {
       if (Date.now() > deadline) throw new Error("Reviewer evaluation is taking longer than expected. Its status remains visible above.");
       await new Promise((r) => setTimeout(r, 1500));
     }
-    await useApp.getState().refresh();
+      const assessed = await window.desktop.state();
+      const workflow = assessed.session;
+      if (workflow?.id === draft.session && workflow.privacy.map_revision !== draft.revision &&
+          (workflow.observations.length || workflow.evidence.some((e) => e.text && !e.kind.startsWith("trainee")))) {
+        usePrivacyJobs.setState({ label: "Building process steps and your Work Map", progress: 1 });
+        await useApp.getState().command("build-map");
+        const mapDeadline = Date.now() + 90_000;
+        while (true) {
+          if (token.cancelled) throw new Error("Analysis canceled.");
+          const result = await window.desktop.state();
+          if (result.session?.id !== draft.session || result.session.privacy.revision !== draft.revision) throw new Error("The workflow or privacy revision changed.");
+          if (!result.busy.length) {
+            if (result.session.privacy.map_revision !== draft.revision) throw new Error("Frames were analyzed, but the Work Map did not finish. Your observations and questions are saved. Retry analysis or use Build from evidence in Work Map.");
+            break;
+          }
+          if (Date.now() > mapDeadline) throw new Error("Work Map generation is taking longer than expected. Its status remains visible above.");
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+      await useApp.getState().refresh();
   } catch (error) {
     if (deleting.has(draft.session)) throw new DOMException("Workflow processing stopped for deletion.", "AbortError");
     throw error;

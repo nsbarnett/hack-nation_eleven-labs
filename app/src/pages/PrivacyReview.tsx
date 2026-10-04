@@ -51,7 +51,7 @@ export function PrivacyReview() {
   } | null>(null);
   const guest = data?.guest,
     session = data?.session,
-    busy = !!job.label || saving || recording !== "idle";
+    busy = !!job.label || saving || !!data?.busy.length || recording !== "idle";
   const segment = draft?.segments[segmentIndex],
     cover = draft?.covers.find((c) => c.id === selected);
   useEffect(() => {
@@ -222,6 +222,10 @@ export function PrivacyReview() {
     (m) => m.decision === "pending",
   ).length;
   const rendered = draft.segments.every((s) => !!draft.derivatives[s.name]);
+  const approved = draft.status === "approved";
+  const needsMap = session.observations.length > 0 || session.evidence.some((e) => e.text && !e.kind.startsWith("trainee"));
+  const analyzed = approved && session.privacy.question_revision === draft.revision && (!needsMap || session.privacy.map_revision === draft.revision);
+  const nextStep = unresolved ? 1 : !rendered ? 2 : !approved ? 3 : 4;
   function point(e: React.PointerEvent) {
     const bounds = stage.current!.getBoundingClientRect();
     return {
@@ -230,7 +234,7 @@ export function PrivacyReview() {
     };
   }
   return (
-    <>
+    <div className="privacy-review">
       <header className="page-heading compact">
         <span className="eyebrow">LOCAL PRIVACY REVIEW</span>
         <h1>Choose what leaves your screen.</h1>
@@ -238,6 +242,13 @@ export function PrivacyReview() {
           {session.title} · Revision {draft.revision}
         </p>
       </header>
+      <section className="panel privacy-flow" aria-label="Privacy review progress">
+        <h2>{analyzed ? "Analysis complete" : `Next: ${["Review suggestions", "Render a safe copy", "Review and approve", "Analyze approved frames"][nextStep - 1]}`}</h2>
+        <p>Screen-based steps and questions appear only after step 4. Your typed and voice notes can be used separately during recording.</p>
+        <ol className="privacy-steps">
+          {["Review suggestions", "Render copy", "Approve copy", "Analyze frames"].map((label, index) => <li key={label} aria-current={!analyzed && nextStep === index + 1 ? "step" : undefined} className={analyzed || nextStep > index + 1 ? "complete" : ""}><span>{index + 1}</span>{label}<small>{analyzed || nextStep > index + 1 ? "Done" : nextStep === index + 1 ? "Current step" : "Waiting"}</small></li>)}
+        </ol>
+      </section>
       <div className="notice-banner">
         <span>
           Suggestions can miss brief appearances, names, addresses, faces, or
@@ -488,6 +499,7 @@ export function PrivacyReview() {
           <div className="review-tools">
             <Button
               disabled={busy || preview}
+              aria-pressed={draw}
               onClick={() => {
                 setDraw(!draw);
                 setSelected("");
@@ -526,6 +538,11 @@ export function PrivacyReview() {
         </section>
         <aside className="panel review-findings">
           <h3>Suggestions to review</h3>
+          <p className="small muted">Cover sensitive areas or reject incorrect detections. {unresolved} unresolved across all segments.</p>
+          <Button disabled={busy || unresolved === 0} onClick={() => run(() => save((d) => {
+            d.markers.forEach((m) => { if (m.decision === "pending") m.decision = "dismissed"; });
+          }))}>Reject all suggestions</Button>
+          <p className="small muted">Rejecting keeps the pixels visible. It does not approve or share the recording. Use Reopen on a finding to undo.</p>
           {!markers.length && (
             <p className="muted">
               No suggestions in this segment. This is not a guarantee that it
@@ -579,7 +596,7 @@ export function PrivacyReview() {
                     )
                   }
                 >
-                  {m.decision === "dismissed" ? "Reopen" : "Dismiss"}
+                  {m.decision === "dismissed" ? "Reopen" : "Reject suggestion"}
                 </Button>
               </div>
             </div>
@@ -707,14 +724,11 @@ export function PrivacyReview() {
         )}
       </section>
       <section className="panel privacy-approve">
-        <h3>Render, review, then approve</h3>
-        <p>
-          Rendering creates a separate WebM with opaque covers baked in. Your
-          originals remain here. Only approved rendered frames can be sent for
-          screen analysis.
-        </p>
-        <div className="review-tools">
+        <h2>Finish privacy review</h2>
+        <div className="privacy-action-step" data-current={nextStep === 2 && !analyzed}>
+          <div><h3>2. Render a safe copy</h3><p>{unresolved ? `Resolve ${unresolved} suggestions before rendering.` : rendered ? "Your redacted copy is ready. Play it back and check every segment." : "Create a separate video with your covers baked in. The original stays in this browser."}</p></div>
           <Button
+            className={nextStep === 2 ? "primary" : ""}
             disabled={busy || unresolved > 0 || draft.status === "approved"}
             onClick={() =>
               run(async () => {
@@ -725,16 +739,22 @@ export function PrivacyReview() {
           >
             Render redacted copy
           </Button>
-          <label>
+        </div>
+        <div className="privacy-action-step" data-current={nextStep === 3 && !analyzed}>
+          <div><h3>3. Review and approve the copy</h3><p>{approved ? "Approved. Only this redacted revision is eligible for screen analysis." : !rendered ? "Render a copy before you can approve it." : "Confirm you have reviewed every segment, including any scan gaps."}</p>
+          <label className="privacy-acknowledgement">
             <input
               type="checkbox"
+              disabled={busy || !rendered || approved || unresolved > 0}
               checked={acknowledged}
               onChange={(e) => setAcknowledged(e.target.checked)}
             />{" "}
             I reviewed all segments, including any scan gaps, and approve this
             revision.
           </label>
+          </div>
           <Button
+            className={nextStep === 3 ? "primary" : ""}
             disabled={
               busy ||
               !rendered ||
@@ -748,8 +768,11 @@ export function PrivacyReview() {
           >
             Approve reviewed recording
           </Button>
+        </div>
+        <div className="privacy-action-step" data-current={nextStep === 4 && !analyzed}>
+          <div><h3>4. Generate steps and questions</h3><p>{analyzed ? "Analysis is complete. Open your Work Map or Debrief to review the results." : approved ? "Send selected approved frames to AI, then prepare your Work Map and Debrief." : "Approve the rendered copy to unlock analysis. No screen frames have been shared."}</p></div>
           <Button
-            className="primary"
+            className={nextStep === 4 && !analyzed ? "primary" : ""}
             disabled={
               busy ||
               draft.status !== "approved" ||
@@ -770,6 +793,8 @@ export function PrivacyReview() {
             ? "Approved. Library playback and downloads use the redacted copy."
             : "Not approved. No screen frames will be shared with AI."}
         </p>
+        {analyzed && <div className="button-row"><Button onClick={() => useApp.getState().go("Work Map")}>Open Work Map</Button></div>}
+        <details className="privacy-cleanup"><summary>Original recording storage</summary><p>Optional cleanup after approval. Keep originals if you may need to revise covers.</p>
         <Button
           disabled={busy || draft.status !== "approved"}
           onClick={() =>
@@ -796,7 +821,8 @@ export function PrivacyReview() {
         >
           Delete originals…
         </Button>
+        </details>
       </section>
-    </>
+    </div>
   );
 }

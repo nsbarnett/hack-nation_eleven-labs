@@ -53,6 +53,8 @@ select {
   -webkit-app-region: no-drag;
 }
 button {
+  user-select: none;
+  -webkit-user-select: none;
   cursor: pointer;
   color: inherit;
 }
@@ -1391,3 +1393,36 @@ hr {
 .processing-status progress { max-width: 180px; margin-left: auto; }
 .processing-spinner { flex: 0 0 auto; animation: processing-spin 1.5s linear infinite; }
 @keyframes processing-spin { to { transform: rotate(360deg); } }
+/* Privacy review has one current action and consistent, selectable states. */
+.action-required, .nav-action-required { color: #70480b; background: #fff2d5; border: 1px solid #ead4a7; border-radius: 6px; font-size: .72rem; font-weight: 600; padding: 4px 7px; }
+.nav-action-required { margin-left: auto; font-size: .62rem; line-height: 1.25; }
+.sidebar nav button:has(.nav-action-required) { flex-wrap: wrap; }
+.workflow-list-item { flex-wrap: wrap; }
+.workflow-privacy-action { border-top: 1px solid var(--border); padding: 14px 0; }
+.workflow-list-item .workflow-privacy-action { flex-basis: 100%; margin: 0 16px; }
+.workflow-privacy-action p { font-size: .85rem; line-height: 1.5; margin: 10px 0; }
+.privacy-flow { padding: 24px; margin-bottom: 20px; }
+.privacy-flow h2 { font-size: 1.15rem; }
+.privacy-flow p { color: var(--text-secondary); line-height: 1.6; margin: 10px 0 20px; }
+.privacy-steps { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.privacy-steps li { border: 1px solid var(--border); padding: 12px; border-radius: 10px; font-size: .8rem; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.privacy-steps li span { font-weight: 700; }
+.privacy-steps li small { flex-basis: 100%; color: var(--text-secondary); }
+.privacy-steps li[aria-current=step] { border-color: #343e38; background: #f1f4f1; }
+.privacy-steps li.complete { background: #f6f8f5; }
+.privacy-review .button { min-height: 40px; height: auto; padding: 10px 16px; border-radius: 9px; font-size: .82rem; line-height: 1.35; white-space: normal; box-shadow: none; }
+.privacy-review .button:disabled { opacity: 1; color: #777; background: #f2f2f2; border-color: #ddd; cursor: not-allowed; transform: none; }
+.privacy-review .button[aria-pressed=true] { background: #e5ece6; border-color: #455a48; color: #203524; }
+.privacy-review .review-tools { padding: 12px 0; gap: 8px; }
+.privacy-review > .review-tools { padding: 16px 20px; }
+.privacy-action-step { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 24px; align-items: start; padding: 22px 0; border-bottom: 1px solid var(--border); }
+.privacy-action-step h3 { margin-bottom: 8px; }
+.privacy-action-step p { margin: 0; font-size: .9rem; }
+.privacy-action-step .button { width: 100%; }
+.privacy-acknowledgement { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; line-height: 1.5; font-size: .85rem; }
+.privacy-acknowledgement input { flex: 0 0 18px; margin-top: 2px; }
+.privacy-cleanup { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 16px; font-size: .85rem; }
+.privacy-cleanup summary { cursor: pointer; }
+.privacy-cleanup p { margin: 12px 0; }
+.review-findings > .button { width: 100%; margin-top: 12px; }
+@media(max-width: 900px) { .privacy-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } .privacy-action-step { grid-template-columns: 1fr; gap: 14px; } .privacy-action-step .button { width: auto; justify-self: start; } }

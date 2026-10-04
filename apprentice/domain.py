@@ -101,6 +101,7 @@ class PrivacyReview(Contract):
     status: Literal["unreviewed", "approved"] = "unreviewed"
     analyzed_frames: list[str] = Field(default_factory=list)
     question_revision: int = -1
+    map_revision: int = -1
 
 
 class ReviewerPreferences(Contract):
