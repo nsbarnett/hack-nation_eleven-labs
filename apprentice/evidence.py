@@ -33,5 +33,7 @@ all worker responses based on the earlier snapshot ineligible for persistence.
     session.knowledge = []
     session.messages = [m for m in session.messages if m.role != "assistant"]
     session.confirmed = False
+    from apprentice.evaluation import clear_derived
+    clear_derived(session)
     session.revision += 1
     return removed

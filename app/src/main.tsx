@@ -1,4 +1,5 @@
 import "./platform";
+import { installExtensionBridge } from "./web/extensionBridge";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { MotionConfig } from "motion/react";
@@ -8,6 +9,7 @@ import { FloatingAssistant } from "./components/FloatingAssistant";
 import { useApp, useMedia, report } from "./stores";
 import { cancelVoice, speak } from "./media";
 import "./style.css";
+installExtensionBridge();
 const overlay = location.hash === "#overlay";
 let spoken = "";
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;

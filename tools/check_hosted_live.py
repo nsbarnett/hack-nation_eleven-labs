@@ -62,7 +62,7 @@ def main():
                 raise RuntimeError("The real provider did not produce grounded practice.")
             print("PASS: real practice generated from confirmed test knowledge", flush=True)
             print("Voice is not exercised by this check; it requires a separately initiated microphone answer.", flush=True)
-            command("delete-session")
+            command("delete-session", {"confirmation": "confirm delete"})
 
 
 if __name__ == "__main__":

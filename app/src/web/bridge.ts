@@ -70,8 +70,8 @@ export function createWebBridge(): Desktop {
   async function reconcile() {
     if (!current?.guest || !current.session) return;
     for (const asset of await listAssets(current.guest, current.session.id)) {
-      if (asset.name.endsWith(".webm") && asset.size && !current.session.recordings.includes(asset.name)) {
-        await send("local-segment", { filename: asset.name });
+      if (asset.purpose !== "redacted" && asset.name.endsWith(".webm") && asset.size && !current.session.recordings.includes(asset.name)) {
+        await send("local-segment", { filename: asset.name, ...(asset.duration !== undefined ? { start: asset.start || 0, duration: asset.duration } : {}) });
       }
     }
   }
@@ -108,13 +108,15 @@ export function createWebBridge(): Desktop {
       await initialize();
       const before = current?.session;
       if (name === "forget" && !confirm("Forget this evidence? Derived knowledge and this workflow's recordings will be removed. This cannot be undone.")) return {};
-      if (name === "delete-session" && !confirm("Delete this workflow, its hosted text, and media stored in this browser? This cannot be undone.")) return {};
+      if (name === "delete-session") {
+        if (data.confirmation !== "confirm delete") throw new Error('Type "confirm delete" to delete this workflow.');
+        if (!before || data.expectedSessionId !== before.id) throw new Error("The open workflow changed. Close the deletion dialog and try again.");
+      }
       const result = await send(name, data);
       await load();
       if (before && current?.guest && ["forget", "delete-session"].includes(name)) {
         const retained = new Set(current.session?.evidence.map((e) => e.image) || []);
-        const removed = new Set([...before.recordings, ...before.evidence.filter((e) => e.image && !retained.has(e.image)).map((e) => e.image)]);
-        await removeAssets(current.guest, before.id, name === "delete-session" ? undefined : removed);
+        await removeAssets(current.guest, before.id);
       }
       if (name === "open") { await reconcile(); await load(); }
       emit({ type: "state" });
@@ -122,9 +124,11 @@ export function createWebBridge(): Desktop {
     },
     sources: async () => [],
     selectSource: async () => {},
-    async beginSegment() {
+    async beginSegment(metadata) {
+      const { usePrivacyJobs } = await import('../privacy/service');
+      if (usePrivacyJobs.getState().label) throw new Error('Finish or cancel privacy processing before starting another recording.');
       const owner = workflow(), filename = `${id()}.webm`;
-      await beginAsset(owner.guest, owner.session, filename, "video/webm");
+      await beginAsset(owner.guest, owner.session, filename, "video/webm", { purpose: "source", ...metadata });
       segments.set(filename, owner);
       return filename;
     },
@@ -133,25 +137,32 @@ export function createWebBridge(): Desktop {
       if (!owner) throw new Error("The recording segment is no longer open.");
       await appendAsset(owner.guest, owner.session, filename, bytes);
     },
-    async endSegment(filename) {
+    async endSegment(filename, duration, partial = false) {
       const owner = segments.get(filename);
       if (!owner) return;
-      await finishAsset(owner.guest, owner.session, filename);
+      await finishAsset(owner.guest, owner.session, filename, { duration, partial });
       const assets = await listAssets(owner.guest, owner.session);
-      if (assets.find((a) => a.name === filename)?.size) await send("local-segment", { filename }, owner.session);
+      const asset = assets.find(a => a.name === filename);
+      if (asset?.size) await send("local-segment", { filename, ...(duration !== undefined ? { start: asset.start || 0, duration } : {}) }, owner.session);
       segments.delete(filename);
     },
     async frame(bytes, duration) {
-      const owner = workflow(), identifier = id(), filename = `${identifier}.jpg`;
-      await beginAsset(owner.guest, owner.session, filename, "image/jpeg");
+      const owner = workflow(), filename = `${id()}.jpg`;
+      const activeSegment = [...segments.keys()].at(-1);
+      if (!activeSegment) return;
+      const assets = await listAssets(owner.guest, owner.session);
+      const start = assets.find(a => a.name === activeSegment)?.start || 0;
+      // Raw bytes and OCR results stay in IndexedDB/local workers, including
+      // when cloud analysis is enabled. No server frame request occurs here.
+      await beginAsset(owner.guest, owner.session, filename, "image/jpeg", { purpose: "source", timestamp: duration });
       await appendAsset(owner.guest, owner.session, filename, bytes);
       await finishAsset(owner.guest, owner.session, filename);
-      if (current?.cloud) {
-        const idle = media.voice === "listening" ? 0 : (performance.now() - lastActivity) / 1000;
-        const query = new URLSearchParams({ sessionId: owner.session, id: identifier, duration: String(duration), idle: String(idle) });
-        try { await api(`frame?${query}`, undefined, bytes); }
-        catch (error) { await send("local-frame", { id: identifier, duration }, owner.session).catch(() => {}); throw error; }
-      } else await send("local-frame", { id: identifier, duration }, owner.session);
+      const { detectLive } = await import('../privacy/service');
+      void detectLive(owner.guest, owner.session, activeSegment, Math.max(0, duration - start), new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));
+    },
+    async reviewedFrame(bytes, duration, identifier, sessionId, revision) {
+      const query = new URLSearchParams({ sessionId, id: identifier, duration: String(duration), revision: String(revision) });
+      await api(`reviewed-frame?${query}`, undefined, bytes);
     },
     async speech(text) { const response = await api("speech", { text, sessionId: workflow().session }); return new Uint8Array(await response.arrayBuffer()); },
     async transcribe(bytes) { return (await api(`transcribe?sessionId=${workflow().session}`, undefined, bytes)).json(); },
@@ -167,7 +178,14 @@ export function createWebBridge(): Desktop {
       return {};
     },
     async media(name) {
-      const owner = workflow(), blob = await readAsset(owner.guest, owner.session, name);
+      const owner = workflow();
+      const { readReview } = await import('./localMedia');
+      const review = await readReview(owner.guest, owner.session);
+      if (review?.status !== 'approved' || review.revision !== current?.session?.privacy.revision || current.session.privacy.status !== 'approved') throw new Error('Review and approve privacy edits before playback or download. Originals are available only in Privacy Review.');
+      const filename = review.derivatives[name] || name;
+      const asset = (await listAssets(owner.guest, owner.session)).find(a => a.name === filename);
+      if (asset?.purpose !== 'redacted' || asset.partial || asset.revision !== review.revision) throw new Error('No approved redacted copy is available. Open Privacy Review to render it.');
+      const blob = await readAsset(owner.guest, owner.session, filename);
       const url = URL.createObjectURL(blob); urls.add(url); return url;
     },
     window: async () => { window.focus(); },

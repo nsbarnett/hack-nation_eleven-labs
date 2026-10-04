@@ -20,8 +20,26 @@ export type Knowledge = {
   escalation: string;
   evidence_ids: string[];
   status: string;
+  decision_ids?: string[];
+  check_verified?: boolean;
+  check?: { conditions: { field: string; operator: string; value: string }[]; field: string; operator: string; value: string } | null;
+};
+export type Evaluation = {
+  debrief_complete: boolean;
+  open_critical: string[];
+  dimensions: {
+    observation_quality: { usable: number; total: number };
+    answer_sufficiency: { pending_evidence: number; partial: number };
+    rule_completeness: { unresolved: number; total: number };
+    consistency: { disputed: number };
+    verification: { verified: number; total: number };
+    learner_correctness: { method: string };
+  };
+  gaps: { id: string; decision_id: string; field: string; description: string; status: string; claim: string; evidence_ids: string[] }[];
+  trace: { code: string; gap_id: string; detail: string }[];
 };
 export type Workflow = {
+  privacy: { revision: number; status: "unreviewed" | "approved"; analyzed_frames?: string[] };
   id: string;
   title: string;
   context: string;
@@ -41,6 +59,7 @@ export type MediaStatus = {
   duration: number;
 };
 export type State = {
+  evaluation?: Evaluation | null;
   epoch?: string;
   hosted?: boolean;
   guest?: string;
@@ -62,8 +81,8 @@ export type State = {
   busy: string[];
   coaching: boolean;
   practice: {
-    items: { question: string; knowledge_ids: string[] }[];
-    answers: Record<string, { verdict: string; explanation: string }>;
+    items: { question: string; knowledge_ids: string[]; scenario?: { field: string; value: string }[]; answer_fields?: string[] }[];
+    answers: Record<string, { verdict: string; explanation: string; evaluation_method?: string }>;
   };
   credentials: {
     openai: boolean;
@@ -86,9 +105,10 @@ export type Desktop = {
   command(name: string, data?: unknown): Promise<any>;
   sources(): Promise<Source[]>;
   selectSource(id: string): Promise<void>;
-  beginSegment(): Promise<string>;
+  beginSegment(metadata?: { start: number; width: number; height: number }): Promise<string>;
   chunk(id: string, bytes: Uint8Array): Promise<void>;
-  endSegment(id: string): Promise<void>;
+  endSegment(id: string, duration?: number, partial?: boolean): Promise<void>;
+  reviewedFrame?(bytes: Uint8Array, duration: number, id: string, sessionId: string, revision: number): Promise<void>;
   frame(bytes: Uint8Array, duration: number): Promise<void>;
   speech(text: string): Promise<Uint8Array>;
   transcribe(bytes: Uint8Array): Promise<{ text: string }>;

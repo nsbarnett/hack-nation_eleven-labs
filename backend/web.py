@@ -157,7 +157,7 @@ def create_web_app(database_url=None, secret=None, settings=None, *, production=
             if request.method not in {"GET", "HEAD"}:
                 if not same_origin(request) or request.headers.get("x-apprentice-client") != "web":
                     return JSONResponse({"detail": "Same-origin browser request required."}, 403)
-                limit = 2_000_000 if request.url.path.endswith("/transcribe") else 1_000_000 if request.url.path.endswith("/frame") else 65_536
+                limit = 2_000_000 if request.url.path.endswith("/transcribe") else 1_000_000 if request.url.path.endswith(("/frame", "/reviewed-frame")) else 65_536
                 parts, size = [], 0
                 async for chunk in request.stream():
                     size += len(chunk)
@@ -191,7 +191,7 @@ def create_web_app(database_url=None, secret=None, settings=None, *, production=
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(self), display-capture=(self)"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
         return response
 
     @app.exception_handler(LimitError)
@@ -217,7 +217,7 @@ def create_web_app(database_url=None, secret=None, settings=None, *, production=
         entry = request.state.entry
         async with entry.service.lock:
             state = await entry.service.snapshot()
-        return {**state, "version": "0.3.0", "hosted": True, "guest": request.state.guest,
+        return {**state, "version": "0.4.0", "hosted": True, "guest": request.state.guest,
                 "limits": {"recordingSeconds": 300, "mediaBytes": 100_000_000, "dailyAiCalls": guest_limit},
                 "media": {"state": "idle", "muted": True, "voice": "idle", "duration": 0}}
 
@@ -240,6 +240,19 @@ def create_web_app(database_url=None, secret=None, settings=None, *, production=
                 await entry.service.hosted_frame(await request.body(), duration, idle, sessionId, id)
             except (OSError, ImageError):
                 raise ValueError("This screenshot could not be read.")
+        return {}
+
+    @app.post("/api/reviewed-frame")
+    async def reviewed_frame(request: Request, sessionId: str, id: str, revision: int, duration: float = 0):
+        entry = request.state.entry
+        async with entry.lock:
+            if time.monotonic() - entry.last_frame < 1.5:
+                raise LimitError("Wait two seconds before submitting another reviewed frame.")
+            try:
+                await entry.service.reviewed_frame(await request.body(), duration, sessionId, id, revision)
+                entry.last_frame = time.monotonic()
+            except (OSError, ImageError):
+                raise ValueError("This reviewed screenshot could not be read.")
         return {}
 
     @app.post("/api/speech")
@@ -305,6 +318,9 @@ def create_web_app(database_url=None, secret=None, settings=None, *, production=
 
     if (static_dir / "assets").is_dir():
         app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
+    for folder in ("ocr", "downloads"):
+        if (static_dir / folder).is_dir():
+            app.mount("/" + folder, StaticFiles(directory=static_dir / folder), name=folder)
 
     @app.get("/")
     async def index():

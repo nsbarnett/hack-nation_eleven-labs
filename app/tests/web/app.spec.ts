@@ -38,9 +38,10 @@ test("empty first launch and permission denial do not invent a workflow", async 
 
 test("capture survives navigation; local media, debrief, map review and teach complete", async ({ page }) => {
   await captureFixture(page);
+  test.setTimeout(180000);
   const videoUploads: string[] = [];
   page.on("request", (request) => {
-    if (request.method() === "POST" && /segment|chunk|video/.test(request.url())) videoUploads.push(request.url());
+    if (request.method() === "POST" && /segment|chunk|video|api\/frame|api\/reviewed-frame/.test(request.url())) videoUploads.push(request.url());
   });
   await page.goto("/");
   await createRecording(page, "Browser acceptance workflow");
@@ -48,16 +49,30 @@ test("capture survives navigation; local media, debrief, map review and teach co
   await page.getByRole("button", { name: "Send note" }).click();
   await page.getByRole("navigation").getByRole("button", { name: "Home", exact: true }).click();
   await page.getByRole("navigation").getByRole("button", { name: "Record", exact: true }).click();
+  await page.waitForTimeout(1200);
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Resume", exact: true }).click();
+  await page.waitForTimeout(1200);
   await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await page.getByRole("navigation").getByRole("button", { name: "Privacy Review", exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Render redacted copy' })).toBeEnabled({ timeout: 90000 });
+  await page.getByRole('button', { name: 'Render redacted copy' }).click();
+  await expect(page.getByText(/Rendered copy .* covers are permanent/)).toBeVisible();
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'Approve reviewed recording' }).click();
+  await expect(page.getByText('Approved. Library playback and downloads use the redacted copy.')).toBeVisible();
   await page.getByRole("navigation").getByRole("button", { name: "Library", exact: true }).click();
   await expect(page.getByText("Open video").first()).toBeVisible();
   await page.getByText("Open video").first().click();
   await expect(page.getByRole("link", { name: "Download recording" })).toHaveAttribute("href", /^blob:/);
   await page.keyboard.press("Escape");
   expect(videoUploads).toEqual([]);
+  await page.getByRole('navigation').getByRole('button', { name: 'Privacy Review', exact: true }).click();
+  await page.getByRole('button', { name: 'Analyze approved frames' }).click();
+  await expect(page.getByRole('button', { name: 'Analyze approved frames' })).toBeEnabled({ timeout: 90000 });
+  expect(videoUploads.some(url => url.includes('/api/reviewed-frame'))).toBe(true);
+  expect(videoUploads.every(url => url.includes('/api/reviewed-frame'))).toBe(true);
   await page.getByRole("navigation").getByRole("button", { name: "Debrief", exact: true }).click();
   await page.getByRole("button", { name: "Ask the next question" }).click();
   await expect(page.getByText("What makes this check necessary?").first()).toBeVisible();
@@ -79,8 +94,31 @@ test("capture survives navigation; local media, debrief, map review and teach co
   await page.getByRole("navigation").getByRole("button", { name: "Teach", exact: true }).click();
   await expect(page.getByText("1 of 1 answered")).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Delete open workflow & media" }).click();
+  const deletion = page.getByRole("dialog", { name: "Delete workflow and data?" });
+  const phrase = deletion.getByLabel("Type confirm delete to continue");
+  const deleteButton = deletion.getByRole("button", { name: "Delete permanently" });
+  await expect(deletion).toContainText("Browser acceptance workflow");
+  await expect(deleteButton).toBeDisabled();
+  for (const incorrect of ["delete", "Confirm delete", "confirm delete "]) {
+    await phrase.fill(incorrect);
+    await expect(deleteButton).toBeDisabled();
+    await phrase.press("Enter");
+    await expect(deletion).toBeVisible();
+  }
+  await phrase.fill("confirm delete");
+  await expect(deleteButton).toBeEnabled();
+  await deletion.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(deletion).toBeHidden();
+  const preserved = await (await page.request.get("/api/state")).json();
+  expect(preserved.session.title).toBe("Browser acceptance workflow");
+  expect(preserved.session.evidence.length).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Delete open workflow & media" }).click();
+  await expect(phrase).toHaveValue("");
+  await expect(deleteButton).toBeDisabled();
+  await phrase.fill("confirm delete");
+  await deleteButton.click();
+  await expect(deletion).toBeHidden();
   await page.getByRole("navigation").getByRole("button", { name: "Home", exact: true }).click();
   await expect(page.getByText("Your first workflow starts here")).toBeVisible();
 });

@@ -165,13 +165,18 @@ def test_provider_failure_is_not_fabricated_or_leaked(tmp_path):
 
 def test_complete_debrief_map_and_teaching_contract(api, monkeypatch):
     from apprentice.agents.gateway import Gateway
-    from apprentice.domain import MapResult, DraftKnowledge, QuestionResult, TutorResult
+    from apprentice.domain import MapResult, DraftKnowledge, QuestionResult, TutorJudgment, TutorResult, AssessmentResult, FieldAssessment, EvidenceQuote
     command(api, 'credentials', openai_key='fixture')
     command(api, 'new', title='Expert-created task', cloud=True)
     command(api, 'note', text='When a required approval is missing, hold the task and ask its owner.')
     service = api.app.state.service
     source = service.session.evidence[0]
     def response(self, schema, instructions, data, images=None):
+        if schema is AssessmentResult:
+            return AssessmentResult(assessments=[FieldAssessment(decision_id=data["decisions"][0]["id"], field="rule",
+                outcome="uncertain", claim="", confidence=.9, rationale="Fixture leaves gap open.",
+                citations=[EvidenceQuote(evidence_id=e["id"], quote=e["text"])])
+                for e in data["expert_evidence"] if e["id"] in data["pending_evidence_ids"]], gaps=[])
         if schema is QuestionResult:
             return QuestionResult(question='Who owns that approval?', evidence_ids=[source.id])
         if schema is MapResult:
@@ -182,7 +187,7 @@ def test_complete_debrief_map_and_teaching_contract(api, monkeypatch):
         item = service.session.knowledge[0]
         if schema is Exercises:
             return Exercises(items=[Exercise(question='In a hypothetical task, approval is missing. What do you do?', knowledge_ids=[item.id])])
-        if schema is TutorResult:
+        if schema is TutorJudgment:
             return TutorResult(verdict='ok', explanation='Holding and asking follows the confirmed rule.', knowledge_ids=[item.id])
         raise AssertionError('Unexpected model schema')
     monkeypatch.setattr(Gateway, 'request', response)

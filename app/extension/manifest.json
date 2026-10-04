@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Apprentice — Floating Assistant",
+  "version": "0.4.0",
+  "description": "Control your open Apprentice workspace from a quiet floating orb. Recording stays in the Apprentice tab until privacy review.",
+  "permissions": ["storage", "scripting", "activeTab"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Open Apprentice" },
+  "options_page": "options.html",
+  "web_accessible_resources": [
+    {
+      "resources": ["surface.html", "surface.js", "surface.css"],
+      "matches": ["https://*/*", "http://*/*"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'; base-uri 'none'"
+  }
+}

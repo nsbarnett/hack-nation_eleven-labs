@@ -1355,3 +1355,22 @@ hr {
     scroll-behavior: auto !important;
   }
 }
+
+/* Privacy editing stays local; responsive panels share the main design tokens. */
+.privacy-layout{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:20px;margin:20px 0}.privacy-player,.review-findings,.privacy-approve{padding:20px}.review-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px}.review-tools label{display:flex;gap:8px;align-items:center}.review-tools input[type=number]{width:100px}.review-tools select,.review-tools input[type=number]{border:1px solid var(--border);border-radius:10px;padding:8px;background:white}.review-stage{position:relative;line-height:0}.review-stage video{display:block;width:100%;border-radius:12px}.cover-editor{position:absolute;inset:0;width:100%;height:100%;touch-action:none}.review-stage.drawing{cursor:crosshair}.review-timeline{position:relative;margin:14px 8px 24px}.review-timeline input{width:100%;margin:0}.review-timeline button{position:absolute;top:24px;width:8px;height:12px;border:0;border-radius:3px;background:#cf8544;transform:translateX(-4px)}.finding{padding:12px 0;border-bottom:1px solid var(--border)}.finding>span{display:block}.review-findings{max-height:650px;overflow:auto}.review-tools progress{max-width:180px}.privacy-approve{margin-top:20px}.privacy-approve p{color:var(--text-secondary);line-height:1.6}.privacy-approve input[type=checkbox]{width:18px;height:18px} @media(max-width:1100px){.privacy-layout{grid-template-columns:1fr}}
+/* Evidence and evaluation summaries share the existing panel/form language. */
+.evaluation-panel { margin-block: 1.25rem; padding: 1.5rem; font-size: .875rem; line-height: 1.6; }
+.evaluation-dimensions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.evaluation-dimensions dt { font-weight: 600; margin-bottom: .35rem; }
+.evaluation-dimensions dd { margin: 0; overflow-wrap: anywhere; }
+.evaluation-panel details { margin-top: 1rem; }
+.evaluation-panel summary { cursor: pointer; padding-block: .5rem; }
+.evaluation-gap { border-top: 1px solid var(--border, #deded9); padding-block: 1rem; }
+.evaluation-review, .evaluation-check { margin-top: 1rem; }
+.evaluation-trace { padding-left: 1.5rem; line-height: 1.7; }
+.evaluation-checkbox { display: flex; align-items: center; gap: .5rem; margin: .75rem 0; font-size: .8rem; }
+.evaluation-checkbox input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0; flex: 0 0 auto; }
+.evaluation-scenario { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin: 1rem 0; }
+.evaluation-scenario dt { font-size: .75rem; color: var(--muted); }
+.evaluation-scenario dd { margin: .25rem 0 0; font-weight: 600; }
+@media (max-width: 800px) { .evaluation-dimensions { grid-template-columns: 1fr; } }

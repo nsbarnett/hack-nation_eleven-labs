@@ -1,5 +1,35 @@
 # Hosted browser validation
 
+## Privacy review and extension (0.4.0, October 4, 2026)
+
+Local results on Windows:
+
+- 73 Python tests passed, including approved-revision uploads, guest isolation, stale-result cancellation, provider failures, quota persistence and evidence invalidation.
+- 7 renderer/unit tests passed, including identifier patterns, keyframe geometry, cut rejection and typed extension-message validation.
+- 7 browser acceptance cases passed in Edge and Chrome for Testing 153. These exercise the real API, MediaRecorder, IndexedDB, packaged Tesseract OCR and WebCodecs/Mediabunny. The draft test was corrected to scroll the video into view before drawing.
+- The extension interaction case passed in both browsers: rapid toggles preserve the orb's bounds/iframe identity; drag and keyboard positioning persist across reload; notes/record/stop synchronize with the app; ordinary page clicks still work; reconnect uses current state.
+- Production browser build and separate extension TypeScript checks passed. The build produces the ZIP, unpacked folder, download asset and local OCR dependencies.
+
+The video test decodes the rendered WebM at moments before, during and after timed masks and checks actual pixel values, including moving keyframes. It also forces a full derivative budget, damaged input, and an unavailable WebCodecs encoder: none returns a successful unredacted export. The draft test delays render dispatch to verify cancellation through the real worker/IndexedDB cleanup path. Browser requests are checked for local OCR asset loading and absence of raw media uploads; the app flow uploads through the reviewed-frame route only after approval. Manual masks/markers survive reload and cancellation, and unapproved recordings have no Library download control.
+
+Provider responses and capture contents are test-only fixtures. Extension tests use a test-only manifest with pregranted host permission to avoid an interactive installation prompt; the shipped manifest requests optional access in Options. No fixture entry point or pregranted test manifest is included in release artifacts.
+
+Commands (build first, then start `python -m uvicorn tests.web_fixture:app --host 127.0.0.1 --port 3001` in another terminal):
+
+```text
+python -m pytest -q
+cd app
+npm test
+npm run test:web
+npm run test:extension
+```
+
+For Chrome for Testing, install Playwright Chromium and set `WEB_TEST_CHANNEL=chromium` / `EXTENSION_CHANNEL=chromium`. `PLAYWRIGHT_BROWSERS_PATH` can point at an isolated test-browser folder. Edge is the default. Do not publish `tests.web_fixture`.
+
+Still requires real-environment acceptance: retail Chrome installation/permission prompts, mixed-DPI physical monitors and OS capture permissions, long recordings on lower-memory hardware, real ElevenLabs/OpenAI in the approved-frame flow, and the published Replit URL/production database. OCR misses, false positives, and missed cuts remain possible; manual review is always required. No public deployment or store listing was performed by these checks.
+
+## Historical hosted checks (0.3.0)
+
 On October 3, 2026: all 72 Python tests, four renderer tests, and four Edge browser acceptance tests passed. Both web and Electron TypeScript builds passed. The hosted suite adds guest isolation, origin/cookie checks, durable quotas, privacy invalidation, reload recovery and sanitized provider failures. Browser acceptance covers permission denial, capture/navigation/pause/resume, local video playback, debrief, map review/confirmation, teaching, reload and deletion.
 
 The browser suite uses a test-only model adapter and a canvas capture stream, with the real API, MediaRecorder and IndexedDB. A separate paid-provider check (`python tools/check_hosted_live.py`) passed with the configured OpenAI key: a real debrief question, five evidence-linked map steps, and practice from confirmed synthetic test evidence. This opt-in script sends only disposable notes and removes its temporary database. ElevenLabs, production PostgreSQL and the published Replit URL still need acceptance.
@@ -54,3 +84,21 @@ For the packaged executable, set APPRENTICE_EXECUTABLE to the absolute path of r
 ## Fixes found during validation
 
 A chat effect returned the new Chromium scrolling result instead of a cleanup function, causing a render failure after saving a note. The effect now explicitly returns nothing. Context focus now follows component mounting rather than an arbitrary timer. Microphone/speech generations reject late responses, and overlapping stop/close requests wait for the same recording flush.
+
+## Evaluation integration checks (2026-10-04)
+
+The evaluation implementation is specified in [EVALUATION.md](EVALUATION.md).
+Local validation includes 133 Python tests (`tests` plus the separate `EvalTest`
+sandbox), 7 renderer tests, a successful browser/extension build, and the browser
+flow in `app/tests/web/evaluation.spec.ts`. The latter covers dimension visibility,
+an explicit gap review, executable-check approval, incorrect/correct threshold
+answers, and feedback persistence after reload. The existing browser capture,
+privacy review, debrief, map, teaching, guest isolation and recovery flows are
+also exercised in `app/tests/web/app.spec.ts`.
+
+`tools/evaluate_logic.py tests/fixtures/evaluation_replays.json` matched all 13
+synthetic reference decisions, with zero false gap closures among 6 unresolved
+cases and zero incorrect learner passes among 4 non-pass cases. These fixtures
+replay model proposals; they do not establish live-model semantic accuracy or
+calibrate the confidence thresholds. Independent expert labeling and held-out
+workflow evaluation remain necessary before making such claims.

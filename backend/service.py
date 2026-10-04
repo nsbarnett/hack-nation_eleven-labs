@@ -6,6 +6,7 @@ SQLite and images use the repository worker, keeping the API event loop responsi
 import asyncio
 import base64
 import io
+import inspect
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -13,15 +14,16 @@ from PIL import Image, ImageChops, ImageStat
 from apprentice.agents.gateway import Gateway
 from apprentice.agents.observer import Observer
 from apprentice.agents.interviewer import Interviewer
+from apprentice.agents.assessor import Assessor
 from apprentice.agents.knowledge import KnowledgeBuilder
 from apprentice.agents.tutor import Tutor
-from apprentice.domain import Session, Evidence, Message, Knowledge, new_id
+from apprentice.domain import Session, Evidence, Message, Knowledge, GapReview, new_id
 from apprentice.evidence import forget, require_sources
-from apprentice.scoring import QuestionPolicy
+from apprentice import evaluation
 from apprentice.exporting import export_session
 from backend.repository import Repository
 from backend.voice import ElevenVoice
-from backend.training import generate
+from backend.training import generate, evaluate_exercise
 
 
 class Service:
@@ -38,7 +40,6 @@ class Service:
         self.assistant = "idle"
         self.question = None
         self.practice = {"items": [], "answers": {}}
-        self.policy = QuestionPolicy()
         self.jobs = set()
         self.tasks = set()
         self.listeners = set()
@@ -50,13 +51,14 @@ class Service:
         self.lock = asyncio.Lock()
 
     async def snapshot(self):
+        assessment = evaluation.summary(self.session) if self.session else None
         return {"session": self.session.model_dump() if self.session else None,
                 "sessions": await self.repo.list(), "cloud": self.cloud,
                 "recording": self.recording, "assistant": self.assistant,
                 "question": self.question, "practice": self.practice, "coaching": self.coaching,
                 "credentials": {"openai": bool(self.settings.openai_key), "elevenlabs": bool(self.settings.eleven_key),
                                 "voiceId": self.settings.voice_id, "model": self.settings.model},
-                "sequence": self.sequence, "epoch": self.epoch, "busy": sorted(self.jobs)}
+                "sequence": self.sequence, "epoch": self.epoch, "busy": sorted(self.jobs), "evaluation": assessment}
 
     async def emit(self, kind="state", **data):
         self.sequence += 1
@@ -70,12 +72,17 @@ class Service:
 
     async def persist(self):
         if self.session:
+            evaluation.refresh(self.session)
             self.session.revision += 1
             await self.repo.save(self.session)
         await self.emit()
 
-    def invalidate(self):
+    def invalidate(self, *, preserve_question=False):
         self.generation += 1
+        if self.session and not preserve_question:
+            for attempt in self.session.evaluation.attempts:
+                if attempt.state == "asking":
+                    attempt.state = "cancelled"
         self.question = None
         self.assistant = "idle"
         self.repo.clear_media_cache()
@@ -90,6 +97,9 @@ class Service:
             raise ValueError("Enable cloud analysis and configure OpenAI in Settings first.")
         if role in self.jobs or len(self.jobs) >= 3:
             raise ValueError("This assistant task is already running. Please wait.")
+        evaluation_roles = {"knowledge", "interviewer", "observer"}
+        if role in evaluation_roles and self.jobs & evaluation_roles:
+            raise ValueError("Wait for the current evidence evaluation to finish.")
         generation = self.generation
         self.jobs.add(role)
         self.assistant = "thinking"
@@ -97,7 +107,12 @@ class Service:
 
         async def run():
             try:
-                result = await self.work_runner(role, work)
+                async def invoke(step, callback):
+                    if generation != self.generation:
+                        raise asyncio.CancelledError()
+                    return await self.work_runner(step, callback)
+                # Each stage goes through the hosted quota runner separately.
+                result = await work(invoke) if inspect.iscoroutinefunction(work) else await invoke(role, work)
                 async with self.lock:
                     if generation == self.generation:
                         apply(result)
@@ -141,7 +156,6 @@ class Service:
             self.session = Session(title=title, context=str(data.get("context", ""))[:12000])
             self.cloud = bool(data.get("cloud", False))
             self.practice = {"items": [], "answers": {}}
-            self.policy = QuestionPolicy()
             self.observed_at = {}
             self.previous_image = None
             self.coaching = False
@@ -155,6 +169,7 @@ class Service:
             self.coaching = False
             self.practice = {"items": [], "answers": {}}
             self.observed_at = {}
+            self.restore_question()
         elif name == "cloud":
             self.cloud = bool(data["enabled"])
             if not self.cloud:
@@ -194,48 +209,141 @@ class Service:
                 kind = "trainee_note"
             evidence = Evidence(kind=kind, text=text, timestamp=session.duration,
                                 question=question["text"] if question else "",
-                                related_ids=question["evidence_ids"] if question else [])
+                                related_ids=question["evidence_ids"] if question else [],
+                                gap_id=question.get("gap_id", "") if question and not self.coaching and kind != "reference" else "")
             session.evidence.append(evidence)
             session.messages.append(Message(role="user", text=text, evidence_ids=[evidence.id]))
+            if evidence.gap_id:
+                for attempt in session.evaluation.attempts:
+                    if attempt.id == question["id"]:
+                        attempt.state, attempt.answer_id = "answered", evidence.id
+                evaluation.trace(session, "ANSWER_SAVED", "Answer saved; sufficiency has not yet been assessed.", evidence.gap_id)
             self.invalidate()
             if not kind.startswith("trainee"):
                 session.confirmed = False
                 self.practice = {"items": [], "answers": {}}
+                # A new statement may change applicability or contradict a compiled rule.
+                # Unprompted text has no reliable dependency scope, so invalidate conservatively.
+                for item in session.knowledge:
+                    if item.status != "rejected":
+                        item.status = "needs_clarification"
+                        item.check, item.check_verified = None, False
         elif name == "defer":
+            for attempt in self.require_session().evaluation.attempts:
+                if attempt.state == "asking":
+                    attempt.state = "deferred"
+                    evaluation.trace(self.session, "DEFER", "Question retained for debrief.", attempt.gap_id)
+            self.invalidate()
+        elif name == "question-ready":
+            session = self.require_session()
+            if self.recording != "recording" or self.question or self.jobs:
+                raise ValueError("Wait until recording is active and the assistant is available.")
+            asked = [a.timestamp for a in session.evaluation.attempts if a.phase == "live"]
+            if ((asked and session.duration - max(asked) < evaluation.CONFIG.live_cooldown_s)
+                    or sum(session.duration - t < 600 for t in asked) >= evaluation.CONFIG.live_budget_per_10min):
+                raise ValueError("The live question cooldown or budget is still active. Continue in Debrief after recording.")
+            gap = evaluation.next_gap(session, "live")
+            if gap:
+                sources = evaluation.expert_sources(session)
+                age = session.duration - max(sources[i].timestamp for i in gap.evidence_ids)
+                if age <= evaluation.CONFIG.max_live_evidence_age_s:
+                    self.ask_evaluated(gap, phase="live")
+        elif name == "review-gap":
+            session = self.require_session()
+            if self.recording != "idle":
+                raise ValueError("Stop recording before reviewing knowledge gaps.")
+            evaluation.refresh(session)
+            gap = next((g for g in session.evaluation.gaps if g.id == data.get("id")), None)
+            text = str(data.get("text", "")).strip()[:12000]
+            outcome = data.get("outcome", "verified")
+            if not gap or not evaluation.established(text) or evaluation.UNCERTAIN.search(text) or outcome not in {"verified", "not_applicable"}:
+                raise ValueError("Provide an explicit expert clarification or explain why this field does not apply.")
+            evidence = Evidence(kind="answer", text=text, gap_id=gap.id, timestamp=session.duration,
+                                question=evaluation.question_for(session, gap), related_ids=gap.evidence_ids)
+            session.evidence.append(evidence)
+            session.evaluation.reviews.append(GapReview(gap_id=gap.id, evidence_id=evidence.id, outcome=outcome))
+            session.evaluation.assessed_evidence_ids.append(evidence.id)
+            session.messages.append(Message(role="user", text=text, evidence_ids=[evidence.id]))
+            session.confirmed = False
+            self.practice = {"items": [], "answers": {}}
+            for item in session.knowledge:
+                if gap.decision_id in item.decision_ids and item.status != "rejected":
+                    item.status = "needs_clarification"
+                    item.check, item.check_verified = None, False
             self.invalidate()
         elif name == "build-map":
+            evaluation.refresh(self.require_session())
             session = self.require_session().model_copy(deep=True)
             if not session.evidence:
                 raise ValueError("Record or add expert notes before building a Work Map.")
             def apply(result):
-                items, teach_back, gaps = result
+                assessed, (items, teach_back, gaps) = result
+                self.session.evaluation = assessed
                 self.session.knowledge = items
                 self.session.confirmed = False
                 self.session.phase = "review"
                 self.practice = {"items": [], "answers": {}}
                 self.session.messages.append(Message(role="assistant", text=teach_back + ("\n\nUnresolved: " + "; ".join(gaps) if gaps else "")))
-            await self.launch("knowledge", lambda: KnowledgeBuilder(Gateway(self.settings)).run(session), apply)
+            async def build(run):
+                if evaluation.pending_sources(session):
+                    session.evaluation = await run("assessment", lambda: Assessor(Gateway(self.settings)).run(session))
+                evaluation.refresh(session)
+                result = await run("knowledge", lambda: KnowledgeBuilder(Gateway(self.settings)).run(session))
+                return session.evaluation, result
+            await self.launch("knowledge", build, apply)
             return {}
         elif name == "debrief":
+            if self.question:
+                return {}
+            evaluation.refresh(self.require_session())
             session = self.require_session().model_copy(deep=True)
             self.session.phase = "debrief"
             def apply(result):
-                if result.question:
-                    self.ask(result.question, result.evidence_ids)
+                assessed, gap_id, wording = result
+                self.session.evaluation = assessed
+                gap = next((g for g in assessed.gaps if g.id == gap_id), None)
+                if gap:
+                    self.ask_evaluated(gap, text=wording)
                 else:
-                    self.session.messages.append(Message(role="assistant", text="No further supported questions were identified. Review your Work Map to confirm its accuracy."))
-            await self.launch("interviewer", lambda: Interviewer(Gateway(self.settings)).debrief(session), apply)
+                    complete = evaluation.summary(self.session)["debrief_complete"]
+                    self.session.messages.append(Message(role="assistant", text="No unresolved applicable gaps remain. Review your Work Map before teaching." if complete else "Evidence still needs assessment. Open gaps remain listed."))
+            async def debrief(run):
+                if evaluation.pending_sources(session):
+                    session.evaluation = await run("assessment", lambda: Assessor(Gateway(self.settings)).run(session))
+                gap = evaluation.next_gap(session)
+                wording = None
+                # Fixed questions cover specific fields. Contextualize only broad rule gaps.
+                if gap and gap.field == "rule":
+                    result = await run("interviewer", lambda: Interviewer(Gateway(self.settings)).debrief(session, gap))
+                    wording = result.question
+                return session.evaluation, gap.id if gap else None, wording
+            gap = evaluation.next_gap(session)
+            if not evaluation.pending_sources(session) and (not gap or gap.field != "rule"):
+                apply((session.evaluation, gap.id if gap else None, None))
+                await self.persist()
+                return {}
+            await self.launch("interviewer", debrief, apply)
             return {}
         elif name == "edit-knowledge":
             session = self.require_session()
             current = next(k for k in session.knowledge if k.id == data["id"])
             patch = data["patch"]
-            allowed = {"title", "action", "decision", "reason", "rule", "exception", "guardrail", "escalation", "status"}
+            allowed = {"title", "action", "decision", "reason", "rule", "exception", "guardrail", "escalation", "status", "check_verified"}
             if not set(patch) <= allowed:
                 raise ValueError("Unsupported knowledge fields.")
             updated = Knowledge.model_validate({**current.model_dump(), **patch})
+            changed = any(getattr(current, key) != value for key, value in patch.items() if key not in {"status", "check_verified"})
+            if changed:
+                updated.check, updated.check_verified = None, False
+                if "status" not in patch:
+                    updated.status = "needs_clarification"
+            if updated.status != "verified":
+                updated.check_verified = False
+            if updated.check_verified and updated.check is None:
+                raise ValueError("There is no executable check to verify. Rebuild the map after editing its rule.")
             if updated.status == "verified":
                 require_sources(updated.evidence_ids, {e.id for e in session.evidence if not e.kind.startswith("trainee")})
+                session.evaluation.assessed_evidence_ids = list(dict.fromkeys(session.evaluation.assessed_evidence_ids + updated.evidence_ids))
             session.knowledge[session.knowledge.index(current)] = updated
             session.confirmed = False
             self.invalidate()
@@ -247,6 +355,14 @@ class Service:
                 raise ValueError("Review and verify every retained step before confirming the map.")
             for item in active:
                 require_sources(item.evidence_ids, {e.id for e in session.evidence if not e.kind.startswith("trainee")})
+            report = evaluation.summary(session)
+            active_decisions = {d for item in active for d in item.decision_ids}
+            blockers = [g for g in session.evaluation.gaps if g.decision_id in active_decisions
+                        and (g.status == "disputed" or (g.status in evaluation.OPEN and evaluation.PRIORITY[g.field] == 0))]
+            if blockers:
+                raise ValueError("Resolve the retained map's critical gaps and contradictions before confirming it.")
+            if report["dimensions"]["answer_sufficiency"]["pending_evidence"]:
+                raise ValueError("Assess new expert evidence in Debrief or rebuild the map before confirming it.")
             session.confirmed = True
             self.invalidate()
         elif name == "forget":
@@ -270,7 +386,7 @@ class Service:
             session = self.require_session().model_copy(deep=True)
             if not session.confirmed:
                 raise ValueError("Confirm a Work Map before teaching.")
-            text = str(data["text"])[:12000]
+            text = str(data.get("text", ""))[:12000]
             index = data.get("index")
             if index is not None:
                 index = int(index)
@@ -284,6 +400,12 @@ class Service:
                 self.session.messages.extend([Message(role="user", text=text), Message(role="assistant", text=result.verdict.upper() + ": " + result.explanation)])
                 if index is not None:
                     self.practice["answers"][str(index)] = result.model_dump()
+            if index is not None and self.practice["items"][index].get("answer_fields"):
+                result = evaluate_exercise(session, self.practice["items"][index], data.get("values", {}))
+                text = "\n".join(f"{field}: {value if value is not None else '[absent]'}" for field, value in data.get("values", {}).items())
+                apply(result)
+                await self.persist()
+                return {}
             await self.launch("tutor", lambda: Tutor(Gateway(self.settings)).explain(session, prompt), apply)
             return {}
         elif name == "coaching":
@@ -300,6 +422,19 @@ class Service:
         self.question = {"id": new_id(), "text": text, "evidence_ids": evidence_ids}
         self.session.messages.append(Message(role="assistant", text=text, evidence_ids=evidence_ids))
         self.assistant = "question"
+
+    def ask_evaluated(self, gap, *, phase="debrief", text=None):
+        attempt = evaluation.ask_gap(self.session, gap, phase, text)
+        self.question = {"id": attempt.id, "text": attempt.text, "evidence_ids": attempt.evidence_ids, "gap_id": attempt.gap_id}
+        self.session.messages.append(Message(role="assistant", text=attempt.text, evidence_ids=attempt.evidence_ids))
+        self.assistant = "question"
+
+    def restore_question(self):
+        evaluation.refresh(self.session)
+        attempt = next((a for a in self.session.evaluation.attempts if a.state == "asking"), None)
+        if attempt:
+            self.question = {"id": attempt.id, "text": attempt.text, "evidence_ids": attempt.evidence_ids, "gap_id": attempt.gap_id}
+            self.assistant = "question"
 
     async def frame(self, payload, duration, idle, evidence_id=None):
         async with self.lock:
@@ -345,13 +480,10 @@ class Service:
                             if result:
                                 self.assistant = "detected"
                         await self.launch("observer", lambda: Observer(Gateway(self.settings)).run(snapshot, images), apply_observations)
-                action = self.policy.choose([item for item in session.observations if now - self.observed_at.get(item.id, -1000) <= 120])
-                if action and not self.coaching:
+                # Automatic silence-based interruptions are intentionally disabled.
+                # The desktop Ready button explicitly requests a supported gap.
+                if not self.coaching and not self.question and evaluation.next_gap(session, "live"):
                     self.assistant = "waiting"
-                    if self.policy.eligible(now, idle, now - self.stable_since, True, bool(self.question)):
-                        action.asked = True
-                        self.policy.delivered.append(now)
-                        self.ask(action.question, action.evidence_ids)
             await self.persist()
 
     async def close(self):

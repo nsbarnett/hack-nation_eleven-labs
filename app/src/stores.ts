@@ -7,6 +7,7 @@ export type Page =
   | "Work Map"
   | "Debrief"
   | "Teach"
+  | "Privacy Review"
   | "Library"
   | "Settings";
 type Store = {

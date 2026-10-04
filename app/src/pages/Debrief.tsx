@@ -2,6 +2,7 @@ import { MessageCircle, ArrowRight } from "lucide-react";
 import { useApp, run } from "../stores";
 import { Button, Empty } from "../components/Controls";
 import { AssistantPanel } from "../components/AssistantPanel";
+import { EvaluationPanel } from "../components/EvaluationPanel";
 export function Debrief() {
   const data = useApp((s) => s.data)!;
   if (!data.session)
@@ -54,6 +55,7 @@ export function Debrief() {
         </section>
         <AssistantPanel />
       </div>
+      <EvaluationPanel />
     </>
   );
 }

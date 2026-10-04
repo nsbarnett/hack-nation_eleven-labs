@@ -30,7 +30,7 @@ export function AssistantPanel() {
     if (!text.trim()) return;
     await useApp
       .getState()
-      .command("note", { text, kind: data.question ? "answer" : "note" });
+      .command("note", { text, kind: data.question ? "answer" : "note", expectedQuestionId: data.question?.id || null });
     setText("");
   }
   return (
@@ -43,7 +43,7 @@ export function AssistantPanel() {
             <p>
               {status.voice === "idle"
                 ? data.cloud
-                  ? states[data.assistant] || data.assistant
+                  ? (window.desktop.platform === "web" && data.session?.privacy.status !== "approved" ? "Privacy review pending" : states[data.assistant] || data.assistant)
                   : "Cloud analysis is off"
                 : status.voice}
             </p>
@@ -89,7 +89,7 @@ export function AssistantPanel() {
             </Button>
             <button
               className="text-button"
-              onClick={() => run(() => useApp.getState().command("defer"))}
+              onClick={() => run(() => useApp.getState().command("defer", { expectedQuestionId: data.question?.id }))}
             >
               Later
             </button>
@@ -131,6 +131,7 @@ export function AssistantPanel() {
       </section>
       <section className="panel settings-card">
         <h3>Assistant preferences</h3>
+        {window.desktop.platform !== "web" && status.state === "recording" && <Button disabled={!!data.question || !!data.busy.length || status.voice !== "idle"} onClick={() => run(() => useApp.getState().command("question-ready"))}>Ready for a question</Button>}
         <Toggle
           label="Cloud analysis"
           checked={data.cloud}
@@ -144,7 +145,7 @@ export function AssistantPanel() {
           onChange={toggleMute}
         />
         <p className="small muted">
-          {window.desktop.platform === "web" ? "Questions use screen stability and activity in this page; the browser cannot detect typing in another app." : "Questions wait for inactivity and a stable screen."} The microphone opens only when you choose Voice.
+          {window.desktop.platform === "web" ? "Screen-based questions follow analysis of approved redacted frames. Typed notes and voice answers are handled separately from visual redaction." : "Use Ready for a question when you can pause, or answer later in Debrief."} The microphone opens only when you choose Voice.
         </p>
       </section>
     </aside>

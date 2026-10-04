@@ -59,15 +59,21 @@ flowchart LR
 | `tests/web_fixture.py` | Test-only deterministic model adapter; never imported by production. |
 | `app/tests/web/app.spec.ts` | Edge browser acceptance against the fixture API, real MediaRecorder and IndexedDB. |
 
+## Version 0.4.0 release assets
+
+`npm run build:web` now also type-checks and builds the MV3 companion and packages local OCR assets. Publish the whole `app/dist` directory, including `ocr/` and `downloads/`; do not publish just `assets/` and `index.html`. Start/restart FastAPI after the build. Settings serves the ZIP from `/downloads/apprentice-extension.zip`. Extraction and browser installation remain explicit user actions. Configure the extension with the production origin after publication.
+
+The browser keeps originals/review drafts in IndexedDB. No schema SQL migration is required: the additive privacy metadata lives in the existing session JSON, with old sessions defaulting to unreviewed. The new `/api/reviewed-frame` route requires an approved revision; `/api/frame` rejects live browser uploads. Existing notes and media are not automatically sent to providers. See [privacy design](PRIVACY.md) and [extension setup](EXTENSION.md).
+
 ## Guest privacy and limits
 
 Guest identity is a random identifier inside an HMAC-signed, Secure, HttpOnly, SameSite cookie. Every database operation scopes by the authenticated guest; a workflow ID alone never authorizes access. Mutations require same-origin requests and a custom header. WebSockets check cookie and Origin. Rendered state contains availability flags, not provider secrets.
 
-Video and JPEGs stay in browser IndexedDB. There is no server video upload or media-download route. With consent, selected frames pass through server memory to OpenAI; observations and text are stored in PostgreSQL. Already-running provider calls can finish after consent is withdrawn, but stale results are rejected and cached frames cleared. Deletion cannot recall earlier provider requests.
+Video and JPEGs stay in browser IndexedDB. There is no server video upload or media-download route. After explicit privacy review approval and cloud consent, selected redacted frames pass through server memory to OpenAI; observations and text are stored in PostgreSQL. Already-running provider calls can finish after consent is withdrawn, but stale results are rejected and cached frames cleared. Deletion cannot recall earlier provider requests.
 
 Explicit microphone answers go to ElevenLabs for transcription. Audio is not stored by this application. Assistant speech is limited to actual assistant messages in the current workflow. Muting stops playback; text remains visible. No system audio or global keyboard monitoring is used.
 
-Default bounds: five minutes and 100 MB of local media per workflow, ten workflows per guest, 300 evidence items, 2 MB per session text snapshot, 180 API requests/minute per live guest, 1 MB/frame and 2 MB/voice upload. At most 32 guest services, four provider calls concurrently, three jobs per service and three WebSockets per guest are retained. Daily provider quotas persist across process restarts. Guest identities can be reset by clearing cookies, so the global daily limit is the final spend guard, not guest identity alone.
+Default bounds: five minutes, 100 MB of source media and a separate 100 MB of derivatives per workflow, ten workflows per guest, 300 evidence items, 2 MB per session text snapshot, 180 API requests/minute per live guest, 1 MB/frame and 2 MB/voice upload. At most 32 guest services, four provider calls concurrently, three jobs per service and three WebSockets per guest are retained. Daily provider quotas persist across process restarts. Guest identities can be reset by clearing cookies, so the global daily limit is the final spend guard, not guest identity alone.
 
 Text workflows expire after seven days of inactivity. The guest cookie expires after seven days; export work before then. The periodic cleanup runs each minute. Clearing browser data removes guest access and local media; browser quota eviction is also possible. Download important videos and export maps. Reload never resumes recording automatically. Completed or interrupted local segments are reconciled with the saved session on reopen; interrupted WebM segments may be partial.
 
@@ -75,14 +81,14 @@ Settings can delete the open workflow and local media after confirmation. Librar
 
 ## Verification and troubleshooting
 
-Local automated acceptance: 72 Python tests, four renderer tests and four Edge browser tests passed on Windows. Test model outputs and canvas capture are fixtures confined to tests; these do not prove real screen permissions, PostgreSQL behavior, or a published deployment. Separately, `python tools/check_hosted_live.py` passed three real OpenAI calls for debrief, map generation and practice using disposable synthetic notes. This is an opt-in paid-provider check, not a seeded demo.
+See TESTING.md for current local test results. Version 0.4.0 adds local OCR, actual redacted video encoding, revision-gated uploads and extension tests. Historical 0.3.0 acceptance covered 72 Python tests, four renderer tests and four Edge browser tests on Windows. Test model outputs and canvas capture are fixtures confined to tests; these do not prove real screen permissions, PostgreSQL behavior, or a published deployment. Separately, `python tools/check_hosted_live.py` passed three real OpenAI calls for debrief, map generation and practice using disposable synthetic notes. This is an opt-in paid-provider check, not a seeded demo.
 
 For the browser suite, build the UI, then run the fixture API in a separate terminal with `python -m uvicorn tests.web_fixture:app --host 127.0.0.1 --port 3001`. Run `npm run test:web` inside `app/` (installed Edge required). Do not publish that fixture entry point.
 
 Before submission, at the **published URL**:
 
 - Use Chrome/Edge, deny screen permission once, then successfully share a harmless test window. Add notes, navigate, pause/resume, and play/download the actual local recording.
-- Enable cloud analysis; receive a real model question and answer it. Unmute and verify real ElevenLabs speech, then explicitly record/transcribe an answer.
+- Stop recording, review all segments and markers, render covers, explicitly approve, then analyze approved frames with cloud analysis enabled; receive a real model question and answer it. Unmute and verify real ElevenLabs speech, then explicitly record/transcribe an answer.
 - Build/review/confirm a map; generate and answer a grounded exercise. Confirm that gaps and provider failures are shown honestly.
 - Open a private browser window: it must start empty and be unable to open the first browser's workflow ID.
 - Reload and check persisted text/map/practice plus local video; confirm capture is idle. Delete the test workflow and verify its text and media disappear.

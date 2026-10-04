@@ -53,7 +53,7 @@ export function RecordingSetup({
       open={open}
       onChange={onChange}
       title={newWorkflow ? "Record a workflow" : "Choose what to capture"}
-      description={window.desktop.platform === "web" ? "Video and screenshots stay in this browser. Notes and Work Maps are saved online for seven days. Choose whether selected screens may be sent for AI analysis." : "Your recording stays on this computer. Choose whether to share sampled screens with AI."}
+      description={window.desktop.platform === "web" ? "Video and screenshots stay in this browser. Notes and Work Maps are saved online for seven days. Screen analysis waits until you review, redact, and approve the recording. Typed notes are saved online; voice notes use ElevenLabs when you choose Voice." : "Your recording stays on this computer. Choose whether to share sampled screens with AI."}
     >
       {newWorkflow && (
         <>

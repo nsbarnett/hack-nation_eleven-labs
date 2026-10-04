@@ -1,19 +1,44 @@
 """Reuse the learning pipeline with browser-owned media and hosted text storage."""
 import math
 import re
+import io
+from PIL import Image
 
 from apprentice.domain import Evidence
+from apprentice.agents.observer import Observer
+from apprentice.agents.gateway import Gateway
 from backend.service import Service
 from backend.hosted_store import LimitError
+from apprentice import evaluation
 
 IDENTIFIER = re.compile(r"^[0-9a-f]{32}$")
 ALLOWED = {"new", "open", "cloud", "recording", "note", "defer", "build-map", "debrief",
            "edit-knowledge", "confirm", "forget", "practice", "tutor", "coaching",
-           "local-frame", "local-segment", "delete-session", "recover"}
+           "local-frame", "local-segment", "delete-session", "recover", "privacy-reset", "privacy-approve", "review-gap"}
 
 
 class HostedService(Service):
+    def clear_screen_derivatives(self):
+        """Keep expert text; discard knowledge which may depend on old screen pixels."""
+        self.invalidate()
+        for task in tuple(self.tasks):
+            task.cancel()
+        session = self.require_session()
+        session.privacy.status = "unreviewed"
+        session.privacy.revision += 1
+        session.privacy.analyzed_frames = []
+        session.evidence = [e for e in session.evidence if e.kind not in {"screen", "trainee_screen"}]
+        session.observations = []
+        session.knowledge = []
+        session.messages = [m for m in session.messages if m.role != "assistant"]
+        session.confirmed = False
+        evaluation.clear_derived(session)
+        self.practice = {"items": [], "answers": {}}
+
     async def launch(self, role, work, apply):
+        session = self.require_session()
+        if (session.recordings or self.recording != "idle" or any(e.image for e in session.evidence)) and session.privacy.status != "approved":
+            raise ValueError("Review and approve the recording's privacy edits before using screen-based AI.")
         if not self.settings.openai_key:
             raise ValueError("The hosted OpenAI connection is unavailable. Manual notes and recording still work.")
         if not self.cloud:
@@ -22,6 +47,7 @@ class HostedService(Service):
 
     async def persist(self):
         if self.session:
+            evaluation.refresh(self.session)
             self.session.revision += 1
             await self.repo.save(self.session, {"practice": self.practice})
         await self.emit()
@@ -31,6 +57,7 @@ class HostedService(Service):
         if rows:
             self.session = await self.repo.load(rows[0]["id"])
             self.practice = (await self.repo.runtime(self.session.id)).get("practice", {"items": [], "answers": {}})
+            self.restore_question()
 
     async def hosted_command(self, name, data, sid):
         if name not in ALLOWED:
@@ -41,12 +68,33 @@ class HostedService(Service):
                     raise ValueError("The open workflow changed. Refresh before trying again.")
             if name == "new" and len(await self.repo.list()) >= 10:
                 raise LimitError("This browser has ten saved workflows. Delete or export one before creating another.")
-            if name in {"note", "local-frame", "tutor"} and len(self.require_session().evidence) >= 300:
+            if name in {"note", "defer"} and "expectedQuestionId" in data:
+                if data["expectedQuestionId"] != (self.question or {}).get("id"):
+                    raise ValueError("The question changed. Review the current question before answering.")
+            if name in {"privacy-reset", "privacy-approve"}:
+                session = self.require_session()
+                if self.recording != "idle":
+                    raise ValueError("Stop recording before reviewing privacy.")
+                if data.get("revision") != session.privacy.revision:
+                    raise ValueError("The privacy revision changed. Refresh the review.")
+                if name == "privacy-reset":
+                    self.clear_screen_derivatives()
+                else:
+                    if not session.recordings:
+                        raise ValueError("Record a workflow before approving its media.")
+                    session.privacy.status = "approved"
+                await self.persist()
+                return session.privacy.model_dump()
+            if name in {"note", "review-gap", "local-frame", "tutor"} and len(self.require_session().evidence) >= 300:
                 raise LimitError("This workflow has reached its evidence limit. Export it and start another.")
             if name == "recording":
                 duration = float(data.get("duration", 0))
                 if not math.isfinite(duration) or not 0 <= duration <= 301:
                     raise ValueError("Browser recordings are limited to five minutes per workflow.")
+                if data.get("state") == "recording" and self.recording != "recording":
+                    if self.recording not in {"idle", "paused"}:
+                        raise ValueError("Invalid recording transition.")
+                    self.clear_screen_derivatives()
             if name == "local-frame":
                 if self.recording != "recording":
                     return {}
@@ -67,9 +115,16 @@ class HostedService(Service):
                     raise ValueError("Invalid local recording identifier.")
                 if filename not in self.session.recordings:
                     self.session.recordings.append(filename)
+                if "start" in data and "duration" in data:
+                    start, duration = float(data["start"]), float(data["duration"])
+                    if not math.isfinite(start + duration) or min(start, duration) < 0 or start + duration > 301:
+                        raise ValueError("Invalid local segment timing.")
+                    self.session.duration = max(self.session.duration, start + duration)
                 await self.persist()
                 return {}
             if name == "delete-session":
+                if data.get("confirmation") != "confirm delete":
+                    raise ValueError('Type "confirm delete" to delete this workflow.')
                 if self.recording != "idle":
                     raise ValueError("Stop recording before deleting this workflow.")
                 self.invalidate()
@@ -82,32 +137,64 @@ class HostedService(Service):
             if name == "recover":
                 # A browser refresh cannot restore MediaStream tracks. Keep its text
                 # and local chunks, but never claim capture is still running.
-                self.invalidate()
+                self.invalidate(preserve_question=True)
                 self.recording = "idle"
                 self.cloud = False
                 self.coaching = False
+                if self.session:
+                    self.restore_question()
                 await self.emit()
                 return {}
             runtime = await self.repo.runtime(data["id"]) if name == "open" else None
             result = await self._command(name, data)
+            if name == "forget":
+                self.clear_screen_derivatives()
+                await self.persist()
             if runtime:
                 self.practice = runtime.get("practice", {"items": [], "answers": {}})
                 await self.persist()
             return result
 
     async def hosted_frame(self, payload, duration, idle, sid, identifier):
-        if not IDENTIFIER.fullmatch(identifier):
-            raise ValueError("Invalid evidence identifier.")
-        if not math.isfinite(duration) or not 0 <= duration <= 301 or not math.isfinite(idle):
-            raise ValueError("Invalid recording duration.")
-        # Request handlers for this guest are serialized by the API's operation
-        # lock; Service.frame also holds its own state lock during mutation.
-        if not self.session or sid != self.session.id:
-            raise ValueError("The open workflow changed.")
-        if not self.cloud:
-            raise ValueError("Enable cloud analysis before sending a screenshot.")
-        if len(self.session.evidence) >= 300:
-            raise LimitError("This workflow has reached its evidence limit.")
-        if any(e.id == identifier for e in self.session.evidence):
-            return
-        await self.frame(payload, duration, max(0, min(idle, 3600)), identifier)
+        raise ValueError("Live screen uploads are disabled. Review the recording and upload approved redacted frames.")
+
+    async def reviewed_frame(self, payload, duration, sid, identifier, revision):
+        """Post-capture analysis. No raw recording endpoint exists on the server."""
+        async with self.lock:
+            session = self.require_session()
+            if sid != session.id or self.recording != "idle":
+                raise ValueError("Stop recording and open the reviewed workflow first.")
+            if session.privacy.status != "approved" or revision != session.privacy.revision:
+                raise ValueError("This privacy revision is not approved.")
+            if not self.cloud or not self.settings.openai_key:
+                raise ValueError("Enable cloud analysis and configure OpenAI before analyzing reviewed frames.")
+            if not IDENTIFIER.fullmatch(identifier) or not math.isfinite(duration) or not 0 <= duration <= session.duration + 1:
+                raise ValueError("Invalid reviewed frame metadata.")
+            if identifier in session.privacy.analyzed_frames:
+                return
+            if self.jobs:
+                raise LimitError("Wait for the current analysis to finish.")
+            if len(session.evidence) >= 300:
+                raise LimitError("This workflow has reached its evidence limit.")
+            def decode():
+                image = Image.open(io.BytesIO(payload))
+                if image.width * image.height > 16_000_000:
+                    raise ValueError("Screen image is too large.")
+                image.thumbnail((1280, 900))
+                output = io.BytesIO()
+                image.convert("RGB").save(output, "JPEG", quality=75)
+                return output.getvalue()
+            jpeg = await self.repo.call(decode)
+            evidence = Evidence(id=identifier, kind="screen", timestamp=duration, image=identifier + ".jpg")
+            session.evidence.append(evidence)
+            await self.repo.save_frame(sid, evidence.image, jpeg)
+            images = await self.repo.images(session, "screen")
+            snapshot = session.model_copy(deep=True)
+            def apply(result):
+                self.session.observations.extend(result)
+                self.session.privacy.analyzed_frames.append(identifier)
+                # Historical frames are never rejected because the recording has ended.
+                # Ask on explicit Debrief request, after all reviewed frames are analyzed.
+                evaluation.refresh(self.session)
+            await self.launch("observer", lambda: Observer(Gateway(self.settings)).run(snapshot, images), apply)
+            await self.persist()

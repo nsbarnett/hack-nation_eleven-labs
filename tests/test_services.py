@@ -248,7 +248,7 @@ def test_builder_rejects_trainee_or_omitted_sources():
     s = create_demo()
     trainee = Evidence(kind="trainee_note", text="My incorrect assumption")
     s.evidence.append(trainee)
-    draft = DraftKnowledge(**s.knowledge[0].model_dump(exclude={"id", "status"}), needs_clarification=False)
+    draft = DraftKnowledge(**s.knowledge[0].model_dump(exclude={"id", "status", "check_verified"}), needs_clarification=False)
     draft.evidence_ids = [trainee.id]
     response = MapResult(items=[draft], teach_back="Test response", gaps=[])
     fake = SimpleNamespace(request=lambda *args: response)

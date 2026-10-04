@@ -1,0 +1,49 @@
+body {
+  font:
+    16px/1.6 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: #111;
+  background: #f7f7f5;
+  margin: 0;
+}
+main {
+  max-width: 600px;
+  margin: 60px auto;
+  background: white;
+  padding: 36px;
+  border: 1px solid #e6e6e3;
+  border-radius: 24px;
+}
+h1 {
+  font-size: 28px;
+  line-height: 1.25;
+}
+label {
+  display: block;
+}
+input {
+  display: block;
+  width: 95%;
+  padding: 12px;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  font: inherit;
+  margin: 8px 0 18px;
+}
+button {
+  border: 0;
+  border-radius: 22px;
+  background: #111;
+  color: #fff;
+  padding: 12px 18px;
+  font: inherit;
+  cursor: pointer;
+}
+p {
+  color: #666;
+}
+p[role="status"] {
+  color: #111;
+}

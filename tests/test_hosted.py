@@ -90,21 +90,68 @@ def test_local_media_metadata_is_not_a_file_upload(client, tmp_path):
     assert b"private-image" not in (tmp_path / "hosted.sqlite3").read_bytes()
 
 
-def test_cloud_frame_kept_only_in_bounded_memory(client, tmp_path):
-    command(client, "new", {"title": "Opted in", "cloud": True})
-    command(client, "recording", {"state": "recording"})
-    snapshot = state(client)
-    entry = client.app.state.runtime.guests[snapshot["guest"]]
-    buf = io.BytesIO()
-    Image.new("RGB", (40, 30), "white").save(buf, "JPEG")
-    for index in range(4):
+def test_reviewed_frames_require_approval_and_keep_only_bounded_memory(tmp_path, monkeypatch):
+    from apprentice.agents.observer import Observer
+    monkeypatch.setattr(Observer, "run", lambda *args: [])
+    with TestClient(make_app(tmp_path, settings=Settings(openai_key="test-only")), headers=HEADERS) as client:
+        state(client)
+        command(client, "new", {"title": "Opted in", "cloud": True})
+        command(client, "recording", {"state": "recording"})
+        snapshot = state(client)
+        entry = client.app.state.runtime.guests[snapshot["guest"]]
+        sid = snapshot["session"]["id"]
+        revision = snapshot["session"]["privacy"]["revision"]
+        buf = io.BytesIO()
+        Image.new("RGB", (40, 30), "white").save(buf, "JPEG")
+        endpoint = f"/api/reviewed-frame?sessionId={sid}&revision={revision}"
+        assert client.post(endpoint + f"&id={'a'*32}", content=buf.getvalue()).status_code == 400
+        assert client.post(f"/api/frame?sessionId={sid}&id={'a'*32}", content=buf.getvalue()).status_code == 400
+        command(client, "local-segment", {"filename": "b"*32 + ".webm"})
+        command(client, "recording", {"state": "idle", "duration": 10})
+        assert command(client, "privacy-approve", {"revision": revision-1}).status_code == 400
+        assert command(client, "privacy-approve", {"revision": revision}).status_code == 200
+        for index in range(4):
+            entry.last_frame = 0
+            response = client.post(endpoint + f"&id={index:032x}&duration={index*2}", content=buf.getvalue())
+            assert response.status_code == 200, response.text
+            for _ in range(100):
+                if not state(client)["busy"]: break
+                time.sleep(.01)
+        assert len(entry.service.repo.frames) == 3
+        assert len(state(client)["session"]["privacy"]["analyzed_frames"]) == 4
+        assert not list(tmp_path.glob("**/*.jpg"))
+        assert command(client, "privacy-reset", {"revision": revision}).status_code == 200
+        assert not state(client)["session"]["observations"]
+        assert not entry.service.repo.frames
         entry.last_frame = 0
-        response = client.post(f"/api/frame?sessionId={snapshot['session']['id']}&id={index:032x}&duration={index*2}", content=buf.getvalue())
-        assert response.status_code == 200, response.text
-    assert len(entry.service.repo.frames) == 3
-    assert not list(tmp_path.glob("**/*.jpg"))
-    command(client, "cloud", {"enabled": False})
-    assert not entry.service.repo.frames
+        assert client.post(endpoint + f"&id={'f'*32}", content=buf.getvalue()).status_code == 400
+
+
+def test_privacy_edit_cancels_inflight_observation_and_rejects_stale_answer(tmp_path, monkeypatch):
+    from apprentice.agents.observer import Observer
+    from apprentice.domain import Observation
+    started, release = threading.Event(), threading.Event()
+    def slow(self, session, images):
+        started.set(); release.wait(3)
+        return [Observation(summary="Obsolete pixels", evidence_ids=[session.evidence[-1].id])]
+    monkeypatch.setattr(Observer, "run", slow)
+    with TestClient(make_app(tmp_path, settings=Settings(openai_key="test-only")), headers=HEADERS) as client:
+        state(client); command(client, "new", {"title": "Revision", "cloud": True})
+        command(client, "local-segment", {"filename": "a"*32 + ".webm"})
+        command(client, "recording", {"state": "idle", "duration": 5})
+        revision = state(client)["session"]["privacy"]["revision"]
+        command(client, "privacy-approve", {"revision": revision})
+        sid = state(client)["session"]["id"]
+        buf = io.BytesIO(); Image.new("RGB", (30,30), "black").save(buf, "JPEG")
+        response = client.post(f"/api/reviewed-frame?sessionId={sid}&revision={revision}&id={'b'*32}", content=buf.getvalue())
+        assert response.status_code == 200 and started.wait(2)
+        command(client, "privacy-reset", {"revision": revision}); release.set()
+        for _ in range(50):
+            if not state(client)["busy"]: break
+            time.sleep(.01)
+        assert state(client)["session"]["observations"] == []
+        assert state(client)["session"]["privacy"]["status"] == "unreviewed"
+        assert command(client, "note", {"text": "Late answer", "expectedQuestionId": "stale"}).status_code == 400
 
 
 def test_recover_and_database_restart_preserve_text_but_not_capture(tmp_path):
@@ -134,12 +181,20 @@ def test_forget_and_delete_clear_derived_data(client):
     service.session.confirmed = True
     assert command(client, "forget", {"id": source.id}).status_code == 200
     assert not state(client)["session"]["knowledge"]
-    assert command(client, "delete-session").status_code == 200
+    for payload in ({}, {"confirmation": "delete"}, {"confirmation": "Confirm delete"}, {"confirmation": "confirm delete "}):
+        assert command(client, "delete-session", payload).status_code == 400
+        assert state(client)["session"]["id"] == snapshot["session"]["id"]
+        assert len(state(client)["sessions"]) == 1
+    assert command(client, "delete-session", {"confirmation": "confirm delete"}, sid="stale-workflow").status_code == 400
+    assert state(client)["session"]["id"] == snapshot["session"]["id"]
+    assert command(client, "delete-session", {"confirmation": "confirm delete"}).status_code == 200
     assert state(client)["sessions"] == [] and state(client)["session"] is None
 
 
 def test_pending_ai_cannot_resurrect_deleted_session(tmp_path, monkeypatch):
     from apprentice.agents.knowledge import KnowledgeBuilder
+    from apprentice.agents.assessor import Assessor
+    monkeypatch.setattr(Assessor, "run", lambda self, session: session.evaluation)
     started, release = threading.Event(), threading.Event()
     def delayed(self, session):
         started.set()
@@ -152,7 +207,7 @@ def test_pending_ai_cannot_resurrect_deleted_session(tmp_path, monkeypatch):
         command(client, "note", {"text": "Real input"})
         assert command(client, "build-map").status_code == 200
         assert started.wait(2)
-        command(client, "delete-session")
+        assert command(client, "delete-session", {"confirmation": "confirm delete"}).status_code == 200
         release.set()
         for _ in range(50):
             if not state(client)["busy"]: break

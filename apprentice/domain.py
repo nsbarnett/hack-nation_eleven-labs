@@ -32,6 +32,7 @@ class Evidence(Contract):
     image: str = ""  # Relative to this session's directory; never an arbitrary path.
     question: str = ""
     related_ids: list[str] = Field(default_factory=list)
+    gap_id: str = ""  # Explicit answer binding; never infer the most recent decision.
 
 
 class Observation(Contract):
@@ -44,6 +45,16 @@ class Observation(Contract):
     significance: int = Field(default=0, ge=0, le=3)
     guardrail: bool = False
     asked: bool = False
+    event_type: Literal["field_changed", "record_opened", "records_compared", "case_held", "action_reversed", "dependency_step", "step_completed", "navigation", "other"] = "other"
+    case_id: str = ""
+    field_name: str = ""
+    before: str = ""
+    after: str = ""
+    before_readable: bool = False
+    after_readable: bool = False
+    before_was_default: bool = False
+    confidence: float = Field(default=0, ge=0, le=1)
+    fields_answered_on_screen: list[str] = Field(default_factory=list)
 
 
 class Condition(Contract):
@@ -73,6 +84,8 @@ class Knowledge(Contract):
     evidence_ids: list[str]
     check: RuleCheck | None = None
     status: Literal["inferred", "verified", "needs_clarification", "conflicting", "rejected"] = "inferred"
+    decision_ids: list[str] = Field(default_factory=list)
+    check_verified: bool = False
 
 
 class Message(Contract):
@@ -80,6 +93,99 @@ class Message(Contract):
     role: Literal["assistant", "user", "system"]
     text: str
     evidence_ids: list[str] = Field(default_factory=list)
+
+
+class PrivacyReview(Contract):
+    """Hosted screen evidence is eligible for AI only at this approved revision."""
+    revision: int = Field(default=0, ge=0)
+    status: Literal["unreviewed", "approved"] = "unreviewed"
+    analyzed_frames: list[str] = Field(default_factory=list)
+
+
+GapField = Literal["reason", "rule", "scope", "threshold", "operator", "exception", "guardrail", "escalation", "contradiction", "cue"]
+AssessmentOutcome = Literal["sufficient", "partial", "uncertain", "contradictory", "out_of_scope", "not_applicable"]
+
+
+class EvidenceQuote(Contract):
+    evidence_id: str
+    quote: str
+
+
+class FieldAssessment(Contract):
+    decision_id: str
+    field: GapField
+    outcome: AssessmentOutcome
+    claim: str
+    citations: list[EvidenceQuote]
+    confidence: float = Field(ge=0, le=1)
+    rationale: str
+
+
+class GapProposal(Contract):
+    decision_id: str
+    field: GapField
+    description: str
+    evidence_ids: list[str]
+
+
+class AssessmentResult(Contract):
+    assessments: list[FieldAssessment] = Field(max_length=100)
+    gaps: list[GapProposal] = Field(max_length=100)
+
+
+class EvaluationDecision(Contract):
+    id: str
+    label: str
+    evidence_ids: list[str]
+    observation_confidence: float | None = None
+    observation_usable: bool = True
+    observation_reason: str = "Expert text; visual confidence does not apply."
+
+
+class KnowledgeGap(Contract):
+    id: str = Field(default_factory=new_id)
+    decision_id: str
+    field: GapField
+    description: str
+    evidence_ids: list[str]
+    status: Literal["open", "partial", "observed", "expert_stated", "verified", "disputed", "not_applicable"] = "open"
+    claim: str = ""
+    supporting_evidence_ids: list[str] = Field(default_factory=list)
+    verified_by: list[str] = Field(default_factory=list)
+
+
+class QuestionAttempt(Contract):
+    id: str = Field(default_factory=new_id)
+    gap_id: str
+    text: str
+    evidence_ids: list[str]
+    phase: Literal["live", "debrief"] = "debrief"
+    state: Literal["asking", "answered", "deferred", "cancelled"] = "asking"
+    answer_id: str = ""
+    timestamp: float = 0
+
+
+class EvaluationTrace(Contract):
+    code: str
+    gap_id: str = ""
+    detail: str
+
+
+class GapReview(Contract):
+    gap_id: str
+    evidence_id: str
+    outcome: Literal["verified", "not_applicable"]
+
+
+class EvaluationState(Contract):
+    version: Literal[1] = 1
+    decisions: list[EvaluationDecision] = Field(default_factory=list)
+    gaps: list[KnowledgeGap] = Field(default_factory=list)
+    assessments: list[FieldAssessment] = Field(default_factory=list)
+    assessed_evidence_ids: list[str] = Field(default_factory=list)
+    attempts: list[QuestionAttempt] = Field(default_factory=list)
+    reviews: list[GapReview] = Field(default_factory=list)
+    trace: list[EvaluationTrace] = Field(default_factory=list)
 
 
 class Session(Contract):
@@ -98,6 +204,8 @@ class Session(Contract):
     duration: float = 0
     revision: int = 0
     confirmed: bool = False
+    privacy: PrivacyReview = Field(default_factory=PrivacyReview)
+    evaluation: EvaluationState = Field(default_factory=EvaluationState)
 
 
 # Provider response contracts deliberately omit IDs and verification authority.
@@ -109,6 +217,26 @@ class SeenAction(Contract):
     ambiguity: int = Field(ge=0, le=3)
     significance: int = Field(ge=0, le=3)
     guardrail: bool
+
+
+class SeenEvent(Contract):
+    """Current provider contract; legacy SeenAction remains loadable by older clients."""
+    summary: str
+    evidence_ids: list[str]
+    event_type: Literal["field_changed", "record_opened", "records_compared", "case_held", "action_reversed", "dependency_step", "step_completed", "navigation", "other"]
+    case_id: str
+    field_name: str
+    before: str
+    after: str
+    before_readable: bool
+    after_readable: bool
+    before_was_default: bool
+    confidence: float = Field(ge=0, le=1)
+    fields_answered_on_screen: list[GapField]
+
+
+class EventResult(Contract):
+    actions: list[SeenEvent] = Field(max_length=3)
 
 
 class ObservationResult(Contract):
@@ -132,6 +260,7 @@ class DraftKnowledge(Contract):
     evidence_ids: list[str]
     check: RuleCheck | None
     needs_clarification: bool
+    decision_ids: list[str] = Field(default_factory=list)
 
 
 class MapResult(Contract):
@@ -140,10 +269,14 @@ class MapResult(Contract):
     gaps: list[str]
 
 
-class TutorResult(Contract):
+class TutorJudgment(Contract):
     verdict: Literal["ok", "warn", "unknown"]
     explanation: str
     knowledge_ids: list[str]
+
+
+class TutorResult(TutorJudgment):
+    evaluation_method: Literal["advisory", "verified_rules"] = "advisory"
 
 
 class TrainingCase(Contract):

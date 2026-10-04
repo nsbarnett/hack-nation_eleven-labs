@@ -28,6 +28,7 @@ def compare(value: Any, operator: str, expected: str) -> bool | None:
 def evaluate(items: list[Knowledge], case: dict, required_fields: set[str] | None = None) -> TutorResult:
     applicable, failures, incomplete = [], [], []
     covered = set()
+    expectations = {}
     for item in items:
         if item.status != "verified" or item.check is None:
             continue
@@ -39,12 +40,22 @@ def evaluate(items: list[Knowledge], case: dict, required_fields: set[str] | Non
             incomplete.append(item.id)
             continue
         applicable.append(item.id)
+        expectations.setdefault(check.field, []).append((check.operator, check.value, item.id))
         covered.add(check.field)
         outcome = compare(case.get(check.field), check.operator, check.value)
         if outcome is None:
             incomplete.append(item.id)
         elif not outcome:
             failures.append(item)
+    for field, checks in expectations.items():
+        equal = {value.strip().casefold() for op, value, _ in checks if op == "eq"}
+        unequal = {value.strip().casefold() for op, value, _ in checks if op == "ne"}
+        ops = {op for op, _, _ in checks}
+        conflicting = (len(equal) > 1 or bool(equal & unequal) or {"present", "absent"} <= ops
+                       or ("absent" in ops and any(equal)) or ("present" in ops and "" in equal))
+        if conflicting:
+            return TutorResult(verdict="unknown", explanation=f"Verified rules disagree about {field}. Ask an expert to resolve the conflict.",
+                               knowledge_ids=[i for _, _, i in checks])
     if failures:
         return TutorResult(verdict="warn", explanation="\n\n".join(
             f"{i.title}: {i.rule}\nWhy: {i.reason}\nGuardrail: {i.guardrail}" for i in failures

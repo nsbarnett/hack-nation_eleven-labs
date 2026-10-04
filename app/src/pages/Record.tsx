@@ -71,6 +71,10 @@ export function Record({ onRecord }: { onRecord: () => void }) {
           </Button>
         )}
       </div>
+      {window.desktop.platform === "web" && <div className="notice-banner">
+        <span>{media.status.state === "recording" ? "Recording locally · Privacy review pending" : "Review your recording before sharing screen content with AI."}</span>
+        {!!session?.recordings.length && media.status.state === 'idle' && <Button onClick={() => useApp.getState().go('Privacy Review')}>Review privacy</Button>}
+      </div>}
       <div className="record-layout">
         <div className="record-workspace">
           <section className="preview panel">

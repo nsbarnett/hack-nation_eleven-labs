@@ -2,7 +2,32 @@
 
 ## Hosted browser architecture
 
-The browser entry point is `backend/web.py`. It serves the same React pages through `app/src/web/bridge.ts`, with guest-scoped PostgreSQL text storage and browser IndexedDB media. The desktop preload and local backend remain supported. See [the hosted file guide and data flow](REPLIT.md) for authentication, quotas, deployment and module responsibilities. The sections below describe the Electron edition.
+The supported browser entry point is `backend/web.py`. It serves React through `app/src/web/bridge.ts`, with guest-scoped PostgreSQL text and browser IndexedDB media. The Electron backup retains its earlier capture path. See [hosted setup](REPLIT.md), [privacy contracts](PRIVACY.md), and [extension setup](EXTENSION.md).
+
+### Browser privacy modules (0.4.0)
+
+| Module | Responsibility |
+| --- | --- |
+| `app/src/privacy/types.ts` | Normalized regions, timed segments, local markers/keyframes, approval revision and derivative identity. |
+| `app/src/privacy/detect.ts` | Deterministic local pattern suggestions; returns categories/bounds without recognized text. |
+| `app/src/privacy/geometry.ts` | Region clamping, keyframe interpolation, cut validation and opaque pixel painting. |
+| `app/src/privacy/processor.worker.ts` | Sequential local decode/OCR, scene comparisons, sampled progress, WebCodecs encoding with Mediabunny, and JPEG extraction from rendered copies. |
+| `app/src/privacy/service.ts` | Bounded jobs independent of navigation; serialized draft writes, editing/invalidation, quota checks, cancellation, rendering, approval and revision-bound uploads. |
+| `app/src/pages/PrivacyReview.tsx` | Labeled original editor, segment/timeline/finding controls, cover editing/keyframes/splits, render preview and explicit approval. |
+| `app/src/web/localMedia.ts` | IndexedDB v2 migration, chunk backpressure, separate source/derivative budgets and persistent review drafts. |
+| `app/src/web/bridge.ts` | No live screen uploads; guarded approved playback/download and typed reviewed-frame requests. |
+| `backend/hosted_service.py` | Idle-session/revision approval checks; cancellation and invalidation of screen-derived state; actual post-record observation/questions. |
+| `app/extension/protocol.ts` | Validated, bounded command/snapshot contracts shared with the app. |
+| `app/extension/background.ts` | Single app connection, exact configured origin, deduplication, snapshot fanout and tab reuse. |
+| `app/extension/content.ts` | Isolated relay on the app origin; stable bounded iframe geometry on other permitted pages; click-through and drag handoff. |
+| `app/extension/surface.ts` | Permanently mounted orb/controls, accessible tooltips, keyboard actions and synchronized real state. |
+| `app/extension/options.ts` | Exact-origin configuration and optional website permission request. |
+| `app/src/web/extensionBridge.ts` | Revalidates command/session/question identity; dispatches only explicit app capabilities. |
+| `app/scripts/build-companion.mjs` | Packages the unpacked extension, ZIP/download endpoint, local OCR worker/WASM/language assets and notices. |
+
+Capture bytes never enter Zustand or extension messages. Original video is reachable only from the local editor. Derived video is encoded into new pixels before approval; selected cloud frames are decoded from that derivative. Committed edits invalidate the server generation and privacy revision so old jobs cannot repopulate screen knowledge. Explicit text/voice inputs retain their separate disclosure path.
+
+The following sections describe the historical Electron edition.
 
 ## Authority and data flow
 
@@ -76,7 +101,9 @@ Whole-display previews are hidden to avoid recursion. Electron content protectio
 
 ## Knowledge boundaries
 
-Drafts cite retained expert evidence. Users review and verify every retained step before confirming a map. Additional expert context or edits revoke confirmation. Trainee notes, screenshots and attempts do not enter expert context. Practice questions are explicitly hypothetical and feedback is advisory; unsupported cases remain unknown. Forgetting evidence clears derived knowledge and observations, dependent answers and session videos. Exports are user-owned copies and cannot be recalled.
+Drafts cite retained expert evidence. Users review and verify every retained step before confirming a map. Additional expert context or edits revoke confirmation and invalidate affected executable checks. Trainee notes, screenshots and attempts do not enter expert context. Practice questions are explicitly hypothetical. Structured answers are graded with separately reviewed rule checks; written explanations receive advisory feedback. Unsupported or conflicting cases remain unknown. Forgetting evidence clears derived knowledge, evaluation state and observations, dependent answers and session videos. Exports are user-owned copies and cannot be recalled.
+
+`Session.evaluation` persists decisions, field assessments, source-linked gaps, question attempts, expert reviews and decision traces. `apprentice/agents/assessor.py` proposes quoted assessments; `apprentice/evaluation.py` validates them and controls transitions. Debrief and Work Map display six independent evaluation dimensions. Full parameters, decision rationale and replay instructions are in [EVALUATION.md](EVALUATION.md).
 
 ## Build and validation support files
 

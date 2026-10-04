@@ -56,8 +56,9 @@ export function Library() {
       <div className="section-heading">
         <h2>Recordings</h2>
       </div>
-      {window.desktop.platform === "web" && <p className="muted small">Media is stored only in the browser where it was captured. Use the video player's download control to keep a copy.</p>}
-      {session.recordings.map((file) => (
+      {window.desktop.platform === "web" && <p className="muted small">Media is stored only in the browser where it was captured. Playback and downloads use the approved redacted copy.</p>}
+      {window.desktop.platform === "web" && <Button onClick={() => useApp.getState().go('Privacy Review')}>Review originals & privacy edits</Button>}
+      {(window.desktop.platform === "web" && session.privacy.status !== 'approved' ? [] : session.recordings).map((file) => (
         <button
           className="panel media-row"
           key={file}
@@ -113,7 +114,7 @@ export function Library() {
       <Modal
         open={!!video}
         onChange={() => setVideo(null)}
-        title="Local recording"
+        title={window.desktop.platform === "web" ? "Approved redacted recording" : "Local recording"}
         description="This recording is stored in this browser."
       >
         {video && <><video className="evidence-image" src={video} controls /><a href={video} download="apprentice-recording.webm">Download recording</a></>}

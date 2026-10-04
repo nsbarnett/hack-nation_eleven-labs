@@ -12,6 +12,7 @@ import {
   AudioLines,
   ArrowUpRight,
   X,
+  ShieldCheck,
 } from "lucide-react";
 import { useApp, useMedia, run } from "./stores";
 import type { Page } from "./stores";
@@ -23,6 +24,7 @@ import { WorkMap } from "./pages/WorkMap";
 import { Debrief } from "./pages/Debrief";
 import { Teach } from "./pages/Teach";
 import { Library } from "./pages/Library";
+import { PrivacyReview } from "./pages/PrivacyReview";
 import { Settings } from "./pages/Settings";
 import { RecordingSetup } from "./components/RecordingSetup";
 import { contentTransition } from "./animations";
@@ -90,6 +92,7 @@ export function App() {
     Debrief: <Debrief />,
     Teach: <Teach onRecord={() => record(false)} />,
     Library: <Library />,
+    "Privacy Review": <PrivacyReview />,
     Settings: <Settings />,
   };
   return (
@@ -115,7 +118,7 @@ export function App() {
           Apprentice
         </a>
         <nav aria-label="Main navigation">
-          {navigation.map(({ name, icon: Icon }) => (
+          {[...navigation, ...(window.desktop.platform === "web" ? [{ name: "Privacy Review" as Page, icon: ShieldCheck }] : [])].map(({ name, icon: Icon }) => (
             <button
               key={name}
               className={page === name ? "selected" : ""}

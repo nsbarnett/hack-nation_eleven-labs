@@ -16,6 +16,7 @@ let timer: ReturnType<typeof setInterval> | undefined,
   sample: ReturnType<typeof setInterval> | undefined;
 let started = 0,
   accumulated = 0,
+  segmentStart = 0,
   source: Source | null = null;
 let microphone: MediaRecorder | null = null,
   micStream: MediaStream | null = null,
@@ -90,6 +91,8 @@ export async function voiceNote() {
     throw new Error(window.desktop.platform === "web" ? "The hosted ElevenLabs connection is unavailable. Type your answer or contact the app owner." : "Add an ElevenLabs key in Settings first.");
   cancelVoice();
   const generation = voiceGeneration;
+  const owner = useApp.getState().data?.session?.id;
+  const question = useApp.getState().data?.question?.id || null;
   const capturedStream = await navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true },
     video: false,
@@ -114,11 +117,12 @@ export async function voiceNote() {
     try {
       const bytes = new Uint8Array(await new Blob(chunks).arrayBuffer());
       const answer = await window.desktop.transcribe(bytes);
-      if (generation !== voiceGeneration) return;
+      if (generation !== voiceGeneration || owner !== useApp.getState().data?.session?.id) return;
       if (answer.text)
         await useApp.getState().command("note", {
-          kind: useApp.getState().data?.question ? "answer" : "note",
+          kind: question ? "answer" : "note",
           text: answer.text,
+          expectedQuestionId: question,
         });
       else
         throw new Error(
@@ -183,7 +187,9 @@ export async function startRecording(selected?: Source, preparedStream?: MediaSt
   queue = Promise.resolve();
   queued = 0;
   try {
-    segment = await window.desktop.beginSegment();
+    segmentStart = accumulated;
+    const settings = stream.getVideoTracks()[0].getSettings();
+    segment = await window.desktop.beginSegment({ start: segmentStart, width: settings.width || 0, height: settings.height || 0 });
     const mime = [
       "video/webm;codecs=vp9",
       "video/webm;codecs=vp8",
@@ -284,7 +290,7 @@ export async function stopRecording(paused = false) {
       await stopped;
     } else stream?.getTracks().forEach((t) => t.stop());
     await queue;
-    if (segment) await window.desktop.endSegment(segment);
+    if (segment) await window.desktop.endSegment(segment, accumulated - segmentStart, failure);
     await useApp.getState().command("recording", {
       state: paused && !failure ? "paused" : "idle",
       duration: accumulated,
@@ -295,6 +301,7 @@ export async function stopRecording(paused = false) {
     recorder = null;
     stream = null;
     video = null;
+    const completed = !!segment || useMedia.getState().status.state === "paused";
     segment = "";
     stopping = false;
     finishResolve?.();
@@ -305,6 +312,15 @@ export async function stopRecording(paused = false) {
       state: paused && !failure ? "paused" : "idle",
       duration: accumulated,
     });
+    if (completed && !paused && !failure && window.desktop.platform === 'web') {
+      const state = useApp.getState().data;
+      if (state?.guest && state.session) {
+        void import('./privacy/service').then(async ({ getReview, scanReview }) => {
+          const draft = await getReview(state.guest!, state.session!.id, state.session!.privacy.revision);
+          await scanReview(draft);
+        }).catch(report);
+      }
+    }
   }
 }
 export function canResume() {

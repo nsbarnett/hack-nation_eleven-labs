@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "label_status": "Synthetic maintainer fixtures; independent human review pending",
+  "cases": [
+    {"id": "unknown-answer", "kind": "gap", "text": "I don't know", "outcome": "sufficient", "confidence": 0.99, "expected": "open"},
+    {"id": "acknowledgement", "kind": "gap", "text": "Fine.", "outcome": "sufficient", "confidence": 0.99, "expected": "open"},
+    {"id": "qualified-cutoff", "kind": "gap", "field": "threshold", "text": "Usually above 5,000 EUR.", "outcome": "sufficient", "confidence": 0.98, "expected": "partial"},
+    {"id": "low-confidence", "kind": "gap", "text": "Equipment type determines this classification.", "outcome": "sufficient", "confidence": 0.79, "expected": "partial"},
+    {"id": "explicit-reason", "kind": "gap", "text": "Equipment type determines this classification.", "outcome": "sufficient", "confidence": 0.95, "expected": "expert_stated"},
+    {"id": "contradiction", "kind": "gap", "text": "The two approval instructions conflict for this case.", "outcome": "contradictory", "confidence": 0.95, "expected": "disputed"},
+    {"id": "inapplicability-needs-review", "kind": "gap", "text": "There is no threshold for this decision.", "outcome": "not_applicable", "confidence": 0.95, "expected": "partial"},
+    {"id": "exact-threshold-correct", "kind": "learner", "amount": "5000", "currency": "EUR", "answer": "OPEX", "expected": "ok"},
+    {"id": "exact-threshold-wrong", "kind": "learner", "amount": "5000", "currency": "EUR", "answer": "CAPEX", "expected": "warn"},
+    {"id": "above-threshold", "kind": "learner", "amount": "5001", "currency": "EUR", "answer": "CAPEX", "expected": "ok"},
+    {"id": "unknown-currency", "kind": "learner", "amount": "5000", "currency": "USD", "answer": "CAPEX", "expected": "unknown"},
+    {"id": "non-finite-input", "kind": "learner", "amount": "NaN", "currency": "EUR", "answer": "CAPEX", "expected": "unknown"},
+    {"id": "missing-answer", "kind": "learner", "amount": "5000", "currency": "EUR", "answer": "", "expected": "unknown"}
+  ]
+}

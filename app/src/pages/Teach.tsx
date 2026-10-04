@@ -9,6 +9,7 @@ export function Teach({ onRecord }: { onRecord: () => void }) {
   const recording = useMedia((s) => s.status.state);
   const [mode, setMode] = useState<"practice" | "live">("practice");
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [values, setValues] = useState<Record<number, Record<string, string | null>>>({});
   const [text, setText] = useState("");
   if (!data.session?.confirmed)
     return (
@@ -17,7 +18,7 @@ export function Teach({ onRecord }: { onRecord: () => void }) {
         heading="Teaching starts with confirmed knowledge"
       >
         Open a workflow, review each step, and confirm its Work Map before
-        creating exercises or starting live coaching.
+        creating exercises or asking the tutor for guidance.
       </Empty>
     );
   return (
@@ -35,9 +36,9 @@ export function Teach({ onRecord }: { onRecord: () => void }) {
         >
           Guided practice
         </button>
-        <button aria-pressed={mode === "live"} onClick={() => setMode("live")}>
+        {window.desktop.platform !== 'web' && <button aria-pressed={mode === "live"} onClick={() => setMode("live")}>
           Live coaching
-        </button>
+        </button>}
       </div>
       {mode === "practice" ? (
         <>
@@ -50,7 +51,7 @@ export function Teach({ onRecord }: { onRecord: () => void }) {
             <Button
               className="primary"
               disabled={!!data.busy.length}
-              onClick={() => run(() => useApp.getState().command("practice"))}
+                onClick={() => run(async () => { await useApp.getState().command("practice"); setAnswers({}); setValues({}); })}
             >
               {data.busy.includes("practice")
                 ? "Creating…"
@@ -68,21 +69,27 @@ export function Teach({ onRecord }: { onRecord: () => void }) {
                 Based on {item.knowledge_ids.length} confirmed step
                 {item.knowledge_ids.length === 1 ? "" : "s"}.
               </p>
-              <textarea
+              {item.answer_fields?.length ? <>
+                <dl className="evaluation-scenario">{item.scenario?.map((value) => <div key={value.field}><dt>{value.field}</dt><dd>{value.value}</dd></div>)}</dl>
+                {item.answer_fields.map((field) => <div key={field}>
+                  <label className="field">{field}<input aria-label={`Exercise ${index + 1}: ${field}`} disabled={values[index]?.[field] === null} value={values[index]?.[field] || ""} onChange={(e) => setValues((current) => ({ ...current, [index]: { ...current[index], [field]: e.target.value } }))} /></label>
+                  <label className="evaluation-checkbox"><input type="checkbox" checked={values[index]?.[field] === null} onChange={(e) => setValues((current) => ({ ...current, [index]: { ...current[index], [field]: e.target.checked ? null : "" } }))} /> No value for {field}</label>
+                </div>)}
+              </> : <textarea
                 aria-label={`Answer exercise ${index + 1}`}
                 placeholder="Explain what you would do and why…"
                 value={answers[index] || ""}
                 onChange={(e) =>
                   setAnswers({ ...answers, [index]: e.target.value })
                 }
-              />
+              />}
               <Button
-                disabled={!answers[index]?.trim() || !!data.busy.length}
+                disabled={!!data.busy.length || (item.answer_fields?.length ? !item.answer_fields.every((field) => values[index]?.[field] === null || values[index]?.[field]?.trim()) : !answers[index]?.trim())}
                 onClick={() =>
                   run(() =>
                     useApp
                       .getState()
-                      .command("tutor", { index, text: answers[index] }),
+                      .command("tutor", { index, text: answers[index] || "", values: values[index] || {} }),
                   )
                 }
               >
@@ -91,7 +98,7 @@ export function Teach({ onRecord }: { onRecord: () => void }) {
               {data.practice.answers[String(index)] && (
                 <div className="feedback">
                   <span className="badge">
-                    AI advisory feedback ·{" "}
+                    {data.practice.answers[String(index)].evaluation_method === "verified_rules" ? "Verified rule evaluation" : "AI advisory feedback"} ·{" "}
                     {data.practice.answers[String(index)].verdict}
                   </span>
                   <p>{data.practice.answers[String(index)].explanation}</p>

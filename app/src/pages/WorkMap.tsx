@@ -4,6 +4,7 @@ import { useApp, run } from "../stores";
 import { Button, Empty, Modal } from "../components/Controls";
 import type { Knowledge } from "../types";
 import { CloudConsent } from "../components/CloudConsent";
+import { EvaluationPanel } from "../components/EvaluationPanel";
 const fields = [
   "action",
   "decision",
@@ -61,6 +62,7 @@ export function WorkMap() {
         </Button>
       </div>
       <CloudConsent />
+      <EvaluationPanel />
       <div className="map-list">
         {session.knowledge.map((item, index) => (
           <section key={item.id} className="panel map-step">
@@ -85,6 +87,7 @@ export function WorkMap() {
                 </div>
               ))}
             </dl>
+            {item.check && <p className="small muted">Executable rule: {item.check_verified ? "reviewed for structured practice" : "needs separate expert review"}.</p>}
             <div className="evidence-links">
               {item.evidence_ids.map((id) => {
                 const source = session.evidence.find((e) => e.id === id);
@@ -132,7 +135,7 @@ export function WorkMap() {
               e.preventDefault();
               run(async () => {
                 const patch = Object.fromEntries(
-                  ["title", ...fields, "status"].map((k) => [
+                  ["title", ...fields, "status", "check_verified"].map((k) => [
                     k,
                     editing[k as keyof Knowledge],
                   ]),
@@ -164,6 +167,12 @@ export function WorkMap() {
                 />
               </label>
             ))}
+            {editing.check && <fieldset className="evaluation-check">
+              <legend>Executable rule for structured practice</legend>
+              <p>When {editing.check.conditions.length ? editing.check.conditions.map((condition) => `${condition.field} ${condition.operator} ${condition.value}`).join(" AND ") : "the scoped workflow applies"}, require {editing.check.field} {editing.check.operator} {editing.check.value}.</p>
+              <label className="evaluation-checkbox"><input type="checkbox" checked={!!editing.check_verified} onChange={(e) => setEditing({ ...editing, check_verified: e.target.checked })} /> I reviewed these fields, conditions, and exact operators against the expert evidence.</label>
+              <p className="small muted">Changing this step's text clears the executable check. Rebuild the map and review the new check before using it for structured practice.</p>
+            </fieldset>}
             <label className="field">
               Review status
               <select

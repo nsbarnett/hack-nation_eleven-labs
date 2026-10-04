@@ -6,7 +6,7 @@
   "author": "AI Apprentice",
   "main": "dist-electron/main.js",
   "scripts": {
-    "build:web": "tsc --noEmit && vite build",
+    "build:web": "tsc --noEmit && tsc -p tsconfig.extension.json && vite build && node scripts/build-companion.mjs",
     "test:web": "playwright test -c playwright.web.config.ts",
     "dev": "npm run build && electron .",
     "build": "tsc --noEmit && vite build && tsc -p tsconfig.electron.json",
@@ -14,24 +14,31 @@
     "test": "vitest run",
     "test:desktop": "playwright test",
     "package": "npm run build && electron-builder",
-    "package:dir": "npm run build && electron-builder --dir"
+    "package:dir": "npm run build && electron-builder --dir",
+    "build:extension": "node scripts/build-companion.mjs",
+    "test:extension": "playwright test -c playwright.extension.config.ts"
   },
   "dependencies": {
+    "@tesseract.js-data/eng": "^1.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cn": "^0.4.0",
+    "fflate": "^0.8.3",
     "lucide-react": "^0.468.0",
+    "mediabunny": "^1.61.1",
     "motion": "^12.0.0",
     "radix-ui": "^1.4.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.0.0",
+    "tesseract.js": "^7.0.0",
     "ws": "^8.18.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",
     "@tailwindcss/vite": "^4.0.0",
+    "@types/chrome": "^0.3.4",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
