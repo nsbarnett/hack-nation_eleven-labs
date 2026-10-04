@@ -1,12 +1,10 @@
-import { Toggle } from "./Controls";
-import { useApp, run } from "../stores";
+import { useApp } from "../stores";
 
-/** Keep consent reachable from Map and Teach after a reload resets it to off. */
+/** Explain the browser's processing boundary without a second activation gate. */
 export function CloudConsent() {
-  const cloud = useApp((s) => s.data?.cloud) || false;
+  const available = useApp((s) => s.data?.credentials.openai);
   if (window.desktop.platform !== "web") return null;
   return <section className="panel cloud-consent">
-    <Toggle label="Use AI for this workflow" checked={cloud} onChange={(enabled) => run(() => useApp.getState().command("cloud", { enabled }))} />
-    <p className="small muted">Shares this workflow's notes and relevant context with OpenAI. While recording, selected screenshots are also sent for analysis.</p>
+    <p className="small muted">{available ? "AI uses your workflow notes and context. Screenshots are analyzed only after privacy approval and your Analyze action." : "The AI connection is unavailable. Contact the app owner; your saved work is retained."}</p>
   </section>;
 }

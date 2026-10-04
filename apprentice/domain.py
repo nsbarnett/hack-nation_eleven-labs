@@ -100,6 +100,12 @@ class PrivacyReview(Contract):
     revision: int = Field(default=0, ge=0)
     status: Literal["unreviewed", "approved"] = "unreviewed"
     analyzed_frames: list[str] = Field(default_factory=list)
+    question_revision: int = -1
+
+
+class ReviewerPreferences(Contract):
+    enabled: bool = False
+    presentation: Literal["text", "voice", "both"] = "text"
 
 
 GapField = Literal["reason", "rule", "scope", "threshold", "operator", "exception", "guardrail", "escalation", "contradiction", "cue"]
@@ -163,6 +169,8 @@ class QuestionAttempt(Contract):
     state: Literal["asking", "answered", "deferred", "cancelled"] = "asking"
     answer_id: str = ""
     timestamp: float = 0
+    priority_score: float = 0
+    process_score: float | None = None
 
 
 class EvaluationTrace(Contract):
@@ -206,6 +214,7 @@ class Session(Contract):
     confirmed: bool = False
     privacy: PrivacyReview = Field(default_factory=PrivacyReview)
     evaluation: EvaluationState = Field(default_factory=EvaluationState)
+    reviewer: ReviewerPreferences = Field(default_factory=ReviewerPreferences)
 
 
 # Provider response contracts deliberately omit IDs and verification authority.

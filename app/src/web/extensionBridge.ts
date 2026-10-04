@@ -14,13 +14,15 @@ export function installExtensionBridge() {
   const snapshot = (): Snapshot => {
     const { data } = useApp.getState(),
       { status } = useMedia.getState();
+    const question = data?.question;
+    const visible = question && (question.phase !== "live" || (data?.session?.reviewer?.enabled && status.state === "recording"));
     return {
       connected: connected && !!data,
       epoch,
       sequence: ++sequence,
       session: data?.session?.id || null,
-      question: data?.question
-        ? { id: data.question.id, text: data.question.text }
+      question: visible
+        ? { id: question.id, text: data?.session?.reviewer?.presentation === "voice" ? "A spoken reviewer question is ready. Open Apprentice to replay or view its text." : question.text }
         : null,
       recording: status.state,
       voice: status.voice,

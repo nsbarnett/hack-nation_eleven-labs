@@ -27,6 +27,9 @@ import { Library } from "./pages/Library";
 import { PrivacyReview } from "./pages/PrivacyReview";
 import { Settings } from "./pages/Settings";
 import { RecordingSetup } from "./components/RecordingSetup";
+import { ProcessingStatus, ApprovedAnalysisNotice } from "./components/ProcessingStatus";
+import { ReviewerQuestion } from "./components/ReviewerQuestion";
+import { WorkflowDeletionDialog } from "./components/DeleteWorkflow";
 import { contentTransition } from "./animations";
 const navigation: { name: Page; icon: typeof HomeIcon }[] = [
   { name: "Home", icon: HomeIcon },
@@ -154,6 +157,8 @@ export function App() {
         </div>
       </aside>
       <main className="main-content">
+        <ProcessingStatus />
+        <ApprovedAnalysisNotice />
         {notice && <div className="notice-banner" role="status"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => useApp.setState({ notice: "" })}><X size={16} /></button></div>}
         {error && (
           <div className="error-banner" role="alert">
@@ -186,6 +191,8 @@ export function App() {
         onChange={setSetup}
         newWorkflow={newWorkflow}
       />
+      {window.desktop.platform === "web" && <ReviewerQuestion />}
+      {window.desktop.platform === "web" && <WorkflowDeletionDialog />}
     </div>
   );
 }

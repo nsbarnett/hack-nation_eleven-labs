@@ -19,6 +19,7 @@ import {
   type Segment,
 } from "./types";
 import { validateCovers } from "./geometry";
+import { selectAnalysisFrames, type Sample } from "./selection";
 
 export const usePrivacyJobs = create<{
   session: string;
@@ -26,8 +27,10 @@ export const usePrivacyJobs = create<{
   progress: number;
 }>(() => ({ session: "", label: "", progress: 0 }));
 const workers = new Set<Worker>();
+const workerOwners = new WeakMap<Worker, string>();
 let active: { session: string; cancelled: boolean } | undefined;
 const serial = new Map<string, Promise<unknown>>();
+const deleting = new Set<string>();
 function local(
   guest: string,
   session: string,
@@ -37,6 +40,7 @@ function local(
   const next = (serial.get(key) || Promise.resolve())
     .catch(() => {})
     .then(async () => {
+      if (deleting.has(session)) throw new DOMException("Workflow deletion is in progress.", "AbortError");
       const draft =
         (await readReview(guest, session)) || newReview(guest, session);
       await mutate(draft);
@@ -49,6 +53,27 @@ function local(
   serial.set(key, next);
   return next;
 }
+export async function prepareWorkflowDeletion(guest: string, session: string) {
+  deleting.add(session);
+  const stopWorkers = () => workers.forEach((worker) => {
+    if (workerOwners.get(worker) === session) worker.dispatchEvent(new Event("cancel"));
+  });
+  if (active?.session === session) {
+    active.cancelled = true;
+    const finished = new Promise<void>((resolve) => {
+      const unsubscribe = usePrivacyJobs.subscribe((state) => {
+        if (state.session !== session) { unsubscribe(); resolve(); }
+      });
+    });
+    stopWorkers();
+    await finished;
+  }
+  stopWorkers();
+  await serial.get(guest + session)?.catch(() => {});
+}
+export function finishWorkflowDeletion(session: string) {
+  deleting.delete(session);
+}
 function job(
   data: unknown,
   update: (event: any) => void | Promise<void> = () => {},
@@ -59,6 +84,7 @@ function job(
       { type: "module" },
     );
     workers.add(worker);
+    workerOwners.set(worker, data && typeof data === "object" && "session" in data ? String(data.session) : active?.session || "");
     let events = Promise.resolve();
     const close = () => {
       workers.delete(worker);
@@ -67,6 +93,10 @@ function job(
     // A cancel event rejects the promise as well as stopping the worker.
     const cancel = () => {
       close();
+      if (deleting.has(workerOwners.get(worker) || "")) {
+        reject(new DOMException("Workflow processing stopped for deletion.", "AbortError"));
+        return;
+      }
       reject(
         new Error(
           "Local processing canceled. Original media and edits are retained.",
@@ -106,7 +136,7 @@ export function cancelPrivacyJob() {
   workers.forEach((worker) => worker.dispatchEvent(new Event("cancel")));
   const data = useApp.getState().data;
   if (
-    usePrivacyJobs.getState().label === "Analyzing approved frames" &&
+    (usePrivacyJobs.getState().label === "Analyzing approved frames" || usePrivacyJobs.getState().label.startsWith("Evaluating context")) &&
     data?.session &&
     data.guest
   ) {
@@ -118,6 +148,7 @@ export function cancelPrivacyJob() {
           draft.revision = privacy.revision;
           draft.status = "draft";
           draft.uploaded = [];
+          draft.selection = undefined;
           draft.derivatives = {};
         }),
       )
@@ -169,6 +200,7 @@ export async function getReview(
       draft.status = "draft";
       draft.derivatives = {};
       draft.uploaded = [];
+      draft.selection = undefined;
     }
     if (draft.status === "rendering" && !active) draft.status = "draft";
     if (draft.scan === "scanning" && !active) {
@@ -213,11 +245,13 @@ export async function detectLive(
   if (detecting || active) return; // Bounded: skip rather than queue raw frames.
   detecting = true;
   try {
-    const result = await job({ op: "detect", blob });
+    const result = await job({ op: "detect", blob, session });
+    if (deleting.has(session)) return;
     await local(guest, session, (draft) =>
       addFindings(draft, segment, time, result.findings),
     );
   } catch {
+    if (deleting.has(session)) return;
     await local(guest, session, (draft) => {
       if (
         !draft.gaps.includes(
@@ -244,6 +278,7 @@ export async function editReview(draft: Review) {
   draft.revision = privacy.revision;
   draft.status = "draft";
   draft.uploaded = [];
+  draft.selection = undefined;
   const assets = await listAssets(draft.guest, draft.session);
   await removeAssets(
     draft.guest,
@@ -426,16 +461,34 @@ export async function approveReview(draft: Review) {
   });
 }
 export async function analyzeReview(draft: Review) {
-  const token = startJob(draft.session, "Analyzing approved frames");
+  const token = startJob(draft.session, "Preparing approved frames");
   try {
     if (draft.status !== "approved")
       throw new Error("Approve the reviewed recording before analysis.");
-    const frames = draft.segments.flatMap((s) =>
-      Array.from(
-        { length: Math.max(1, Math.ceil(s.duration / 10)) },
-        (_, i) => ({ segment: s, time: Math.min(i * 10, s.duration - 0.01) }),
-      ),
-    );
+    let frames = draft.selection?.map((f) => ({ segment: draft.segments.find((s) => s.name === f.segment)!, time: f.time }));
+    if (!frames?.length && draft.uploaded.length) {
+      // Finish an older fixed-interval batch without uploading a second selection.
+      frames = draft.segments.flatMap((segment) => Array.from(
+        { length: Math.max(1, Math.ceil(segment.duration / 10)) },
+        (_, i) => ({ segment, time: Math.min(i * 10, segment.duration - 0.01) }),
+      )).slice(0, 30);
+      draft = await local(draft.guest, draft.session, (d) => { d.selection = frames!.map((f) => ({ segment: f.segment.name, time: f.time })); });
+    }
+    if (!frames?.length) {
+      const groups: { segment: Segment; samples: Sample[] }[] = [];
+      for (const segment of draft.segments) {
+        if (token.cancelled) throw new Error("Analysis canceled.");
+        const blob = await readAsset(draft.guest, draft.session, draft.derivatives[segment.name]);
+        const selected = await job({ op: "select", blob, segment }, (event) => {
+          if (event.type === "progress") usePrivacyJobs.setState({ progress: (groups.length + event.progress) / draft.segments.length });
+        });
+        groups.push({ segment, samples: selected.samples });
+      }
+      frames = selectAnalysisFrames(groups);
+      draft = await local(draft.guest, draft.session, (d) => { d.selection = frames!.map((f) => ({ segment: f.segment.name, time: f.time })); });
+    }
+    if (!frames.length) throw new Error("No approved frames are available to analyze.");
+    usePrivacyJobs.setState({ label: "Analyzing approved frames", progress: 0 });
     for (let i = 0; i < frames.length; i++) {
       if (token.cancelled) throw new Error("Analysis canceled.");
       const state = await window.desktop.state();
@@ -454,13 +507,14 @@ export async function analyzeReview(draft: Review) {
       }
       const { segment, time } = frames[i],
         key = `${segment.name}:${time}`;
-      if (draft.uploaded.includes(key)) continue;
+      if (draft.uploaded.includes(key)) { usePrivacyJobs.setState({ progress: (i + 1) / frames.length }); continue; }
       const blob = await readAsset(
         draft.guest,
         draft.session,
         draft.derivatives[segment.name],
       );
       const result = await job({ op: "frame", blob, segment, time }); // Decode the rendered copy, never the original.
+      if (token.cancelled) throw new Error("Analysis canceled.");
       const id = uid(),
         filename = `${id}.jpg`,
         bytes = new Uint8Array(await result.blob.arrayBuffer());
@@ -502,7 +556,25 @@ export async function analyzeReview(draft: Review) {
       usePrivacyJobs.setState({ progress: (i + 1) / frames.length });
       await new Promise((r) => setTimeout(r, 1600));
     }
+    if (token.cancelled) throw new Error("Analysis canceled.");
+    await useApp.getState().command("review-complete", { revision: draft.revision });
+    const deadline = Date.now() + 90_000;
+    while (true) {
+      if (token.cancelled) throw new Error("Analysis canceled.");
+      const state = await window.desktop.state();
+      if (state.session?.id !== draft.session || state.session.privacy.revision !== draft.revision) throw new Error("The workflow or privacy revision changed.");
+      if (!state.busy.length) {
+        if (state.session.privacy.question_revision !== draft.revision) throw new Error("Reviewer evaluation did not finish. Retry analysis to continue.");
+        break;
+      }
+      usePrivacyJobs.setState({ label: "Evaluating context and preparing your question", progress: 1 });
+      if (Date.now() > deadline) throw new Error("Reviewer evaluation is taking longer than expected. Its status remains visible above.");
+      await new Promise((r) => setTimeout(r, 1500));
+    }
     await useApp.getState().refresh();
+  } catch (error) {
+    if (deleting.has(draft.session)) throw new DOMException("Workflow processing stopped for deletion.", "AbortError");
+    throw error;
   } finally {
     finishJob();
   }

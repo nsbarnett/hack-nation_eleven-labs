@@ -10,6 +10,9 @@ import { useApp, useMedia, report } from "./stores";
 import { cancelVoice, speak } from "./media";
 import "./style.css";
 installExtensionBridge();
+for (const event of ["keydown", "pointerdown", "input"]) {
+  window.addEventListener(event, () => useMedia.setState({ lastInteractionAt: Date.now() }), { passive: true });
+}
 const overlay = location.hash === "#overlay";
 let spoken = "";
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -35,7 +38,7 @@ if (!overlay)
       (previous.data?.cloud && !state.data?.cloud)
     )
       cancelVoice();
-    if (question && question.id !== spoken) {
+    if (window.desktop.platform !== "web" && question && question.id !== spoken) {
       spoken = question.id;
       void speak(question.text);
     }

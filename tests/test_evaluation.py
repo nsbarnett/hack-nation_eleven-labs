@@ -386,4 +386,4 @@ def test_hosted_assessment_stages_charge_separately_and_question_survives_recove
         assert used == 2
         command(client, "recover")
         assert state(client)["question"]["id"] == qid
-        assert not state(client)["cloud"]
+        assert state(client)["cloud"]

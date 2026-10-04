@@ -39,6 +39,7 @@ export type Review = {
   gaps: string[];
   derivatives: Record<string, string>;
   uploaded: string[];
+  selection?: { segment: string; time: number }[];
 };
 export const uid = () => crypto.randomUUID().replaceAll("-", "");
 export function newReview(guest: string, session: string): Review {

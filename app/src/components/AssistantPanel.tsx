@@ -42,7 +42,9 @@ export function AssistantPanel() {
             <h3>AI Assistant</h3>
             <p>
               {status.voice === "idle"
-                ? data.cloud
+                ? window.desktop.platform === "web"
+                  ? data.busy.length ? "Processing context…" : data.question ? "A question for you" : status.state === "recording" ? "Recording locally · Add notes for the reviewer" : "Ready when you are"
+                  : data.cloud
                   ? (window.desktop.platform === "web" && data.session?.privacy.status !== "approved" ? "Privacy review pending" : states[data.assistant] || data.assistant)
                   : "Cloud analysis is off"
                 : status.voice}
@@ -130,20 +132,15 @@ export function AssistantPanel() {
         </form>
       </section>
       <section className="panel settings-card">
-        <h3>Assistant preferences</h3>
+        <h3>About your assistant</h3>
         {window.desktop.platform !== "web" && status.state === "recording" && <Button disabled={!!data.question || !!data.busy.length || status.voice !== "idle"} onClick={() => run(() => useApp.getState().command("question-ready"))}>Ready for a question</Button>}
-        <Toggle
+        {window.desktop.platform !== "web" && <Toggle
           label="Cloud analysis"
           checked={data.cloud}
           onChange={(enabled) =>
             run(() => useApp.getState().command("cloud", { enabled }))
           }
-        />
-        <Toggle
-          label="Spoken questions"
-          checked={!status.muted}
-          onChange={toggleMute}
-        />
+        />}
         <p className="small muted">
           {window.desktop.platform === "web" ? "Screen-based questions follow analysis of approved redacted frames. Typed notes and voice answers are handled separately from visual redaction." : "Use Ready for a question when you can pause, or answer later in Debrief."} The microphone opens only when you choose Voice.
         </p>

@@ -1,42 +1,9 @@
-import { useState } from "react";
-import { KeyRound, ShieldCheck, Trash2 } from "lucide-react";
-import { useApp, useMedia } from "../stores";
-import { Button, Modal } from "../components/Controls";
+import { KeyRound, ShieldCheck } from "lucide-react";
+import { useApp } from "../stores";
+import { DeleteWorkflow } from "../components/DeleteWorkflow";
 
 export function WebSettings() {
   const data = useApp((s) => s.data)!;
-  const recording = useMedia((s) => s.status.state);
-  const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
-  const [confirmation, setConfirmation] = useState("");
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState("");
-  const canDelete = !!pendingDelete && pendingDelete.id === data.session?.id
-    && recording === "idle" && confirmation === "confirm delete" && !deleting;
-
-  function closeDelete() {
-    if (deleting) return;
-    setPendingDelete(null);
-    setConfirmation("");
-    setDeleteError("");
-  }
-
-  async function deleteWorkflow() {
-    if (!canDelete) return;
-    setDeleting(true);
-    setDeleteError("");
-    try {
-      await useApp.getState().command("delete-session", {
-        confirmation,
-        expectedSessionId: pendingDelete!.id,
-      });
-      setPendingDelete(null);
-      setConfirmation("");
-    } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setDeleting(false);
-    }
-  }
   return <>
     <header className="page-heading compact"><span className="eyebrow">YOUR WORKSPACE</span><h1>Connections & privacy</h1><p>A private browser workspace for capturing and teaching real work.</p></header>
     <div className="settings-layout">
@@ -53,12 +20,7 @@ export function WebSettings() {
         <p>Notes, observations, conversation text, and Work Maps are saved online in this guest workspace. Inactive workflows are deleted after seven days. No account or cross-device access is provided.</p>
         <p>Original media and English OCR stay in this browser. After you review and explicitly approve a rendered copy, selected redacted frames can be sent to OpenAI. The server briefly holds up to three frames in memory; it does not save image files. Typed notes are saved online. Voice notes go to ElevenLabs only when you start the microphone; visual covers do not redact speech.</p>
         <p>Pause stops capture and microphone tracks. Deleting saved evidence cannot recall information already sent to a provider.</p>
-        <Button className="danger" disabled={!data.session || recording !== "idle"} onClick={() => {
-          if (!data.session) return;
-          setConfirmation("");
-          setDeleteError("");
-          setPendingDelete({ id: data.session.id, title: data.session.title });
-        }}><Trash2 size={16} /> Delete open workflow & media</Button>
+        {data.session && <DeleteWorkflow workflow={data.session} />}
       </section>
       <section className="panel settings-section">
         <h2>Floating browser assistant</h2>
@@ -69,22 +31,5 @@ export function WebSettings() {
       </section>
     </div>
     <p className="small muted">AI Apprentice {data.version} · Browser edition · Chrome or Edge recommended</p>
-    <Modal open={!!pendingDelete} onChange={(open) => { if (!open) closeDelete(); }}
-      title="Delete workflow and data?"
-      description={`This permanently deletes “${pendingDelete?.title ?? ""}”, its hosted notes, conversation, Work Map, and media stored in this browser. This cannot be undone.`}>
-      <form onSubmit={(event) => { event.preventDefault(); void deleteWorkflow(); }}>
-        <label className="field">
-          Type confirm delete to continue
-          <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)}
-            autoComplete="off" autoCapitalize="none" spellCheck={false} disabled={deleting} />
-        </label>
-        {pendingDelete && pendingDelete.id !== data.session?.id && <p role="alert">The open workflow changed. Close this dialog and try again.</p>}
-        {deleteError && <p role="alert">{deleteError}</p>}
-        <div className="button-row">
-          <Button type="button" disabled={deleting} onClick={closeDelete}>Cancel</Button>
-          <Button type="submit" className="danger" disabled={!canDelete}>{deleting ? "Deleting…" : "Delete permanently"}</Button>
-        </div>
-      </form>
-    </Modal>
   </>;
 }

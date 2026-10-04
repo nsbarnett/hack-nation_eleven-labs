@@ -29,7 +29,8 @@ Development falls back to `.artifacts/web-data.sqlite3` and a development-only s
 flowchart LR
     React[Shared React pages] --> Bridge[Browser bridge]
     Capture[MediaRecorder and sampled frames] --> IDB[(Browser IndexedDB)]
-    Capture -->|Opted-in frames only| Bridge
+    IDB --> Review[Local privacy review and approval]
+    Review -->|Explicit Analyze approved frames| Bridge
     Bridge -->|Same-origin HTTPS and WebSocket| Web[Guest API]
     Web --> Service[HostedService / shared Service]
     Service --> Repo[GuestRepository]
@@ -46,11 +47,11 @@ flowchart LR
 | `app/src/web/bridge.ts` | Same renderer interface as Electron: guest API commands, reconnect events, one active tab via Web Locks, local media reconciliation and JSON export. No filesystem or credential interface is exposed. |
 | `app/src/web/localMedia.ts` | IndexedDB assets/chunks scoped by guest and workflow. Each recording chunk is persisted promptly; full blobs are assembled only for playback/download. |
 | `app/src/media.ts` | Persistent capture/voice service outside React page lifetimes. Browser permissions start directly from a user click. Pause stops tracks; resume prompts again and starts a new segment. |
-| `app/src/components/RecordingSetup.tsx` | Session title/context and cloud consent; browser source selection and actionable permission errors. |
-| `app/src/components/CloudConsent.tsx` | Explicit AI choice when reviewing or teaching from a saved workflow. |
+| `app/src/components/RecordingSetup.tsx` | Session title/context and processing disclosure; browser source selection and actionable permission errors. |
+| `app/src/components/CloudConsent.tsx` | Processing explanation and provider availability; no browser AI activation switch. |
 | `app/src/web/WebSettings.tsx` | Owner-managed provider availability, data explanation, and workflow deletion. |
 | `backend/web.py` | Guest cookie, origin checks, request/upload limits, WebSocket events, concurrency/call quotas, static UI, startup validation. Desktop-only routes are absent. |
-| `backend/hosted_service.py` | Whitelisted commands over the reusable learning pipeline. Checks workflow identity, consent, limits, deletion, persisted practice and safe refresh recovery. |
+| `backend/hosted_service.py` | Whitelisted commands over the reusable learning pipeline. Checks workflow identity, privacy approval, limits, deletion, persisted practice and safe refresh recovery. AI remains available after reopening/reload. |
 | `backend/hosted_store.py` | PostgreSQL text snapshots with mandatory guest predicates; durable daily quota transactions. Only the last three sampled frame byte strings are cached in memory. SQLite is for local/test use. |
 | `backend/service.py` | Shared session owner, evidence handling, question policy, generation-based stale-result rejection, Work Map and tutoring orchestration. Repository and model executor are injected. |
 | `backend/voice.py` | Actual ElevenLabs HTTP transport, separate from Qt or browser audio playback. |
@@ -59,7 +60,7 @@ flowchart LR
 | `tests/web_fixture.py` | Test-only deterministic model adapter; never imported by production. |
 | `app/tests/web/app.spec.ts` | Edge browser acceptance against the fixture API, real MediaRecorder and IndexedDB. |
 
-## Version 0.4.0 release assets
+## Browser release assets (0.5.0)
 
 `npm run build:web` now also type-checks and builds the MV3 companion and packages local OCR assets. Publish the whole `app/dist` directory, including `ocr/` and `downloads/`; do not publish just `assets/` and `index.html`. Start/restart FastAPI after the build. Settings serves the ZIP from `/downloads/apprentice-extension.zip`. Extraction and browser installation remain explicit user actions. Configure the extension with the production origin after publication.
 
@@ -69,7 +70,7 @@ The browser keeps originals/review drafts in IndexedDB. No schema SQL migration 
 
 Guest identity is a random identifier inside an HMAC-signed, Secure, HttpOnly, SameSite cookie. Every database operation scopes by the authenticated guest; a workflow ID alone never authorizes access. Mutations require same-origin requests and a custom header. WebSockets check cookie and Origin. Rendered state contains availability flags, not provider secrets.
 
-Video and JPEGs stay in browser IndexedDB. There is no server video upload or media-download route. After explicit privacy review approval and cloud consent, selected redacted frames pass through server memory to OpenAI; observations and text are stored in PostgreSQL. Already-running provider calls can finish after consent is withdrawn, but stale results are rejected and cached frames cleared. Deletion cannot recall earlier provider requests.
+Video and JPEGs stay in browser IndexedDB. There is no server video upload or media-download route. After privacy review, approval, and **Analyze approved frames**, selected redacted frames pass through server memory to OpenAI; observations and text are stored in PostgreSQL. No additional AI switch is required. Privacy edits and deletion invalidate pending results; already dispatched provider requests cannot be recalled. Optional live interjections use notes only and never upload the current screen.
 
 Explicit microphone answers go to ElevenLabs for transcription. Audio is not stored by this application. Assistant speech is limited to actual assistant messages in the current workflow. Muting stops playback; text remains visible. No system audio or global keyboard monitoring is used.
 
@@ -77,7 +78,7 @@ Default bounds: five minutes, 100 MB of source media and a separate 100 MB of de
 
 Text workflows expire after seven days of inactivity. The guest cookie expires after seven days; export work before then. The periodic cleanup runs each minute. Clearing browser data removes guest access and local media; browser quota eviction is also possible. Download important videos and export maps. Reload never resumes recording automatically. Completed or interrupted local segments are reconciled with the saved session on reopen; interrupted WebM segments may be partial.
 
-Settings can delete the open workflow and local media after confirmation. Library Forget removes selected evidence, invalidates derived knowledge, and removes affected recording media. Browser-local deletion is attempted after server text deletion; if storage access fails, clearing this site's browser data removes remaining local bytes.
+Workflow cards, Home, and Settings use the same named deletion dialog with Cancel and Delete workflow. The selected guest-owned workflow is deleted without opening it or disturbing another active workflow. Active capture must stop first. Processing is canceled and drained before media/review cleanup; failed local cleanup can be retried from the dialog and resumes on reload. Library Forget removes selected evidence, invalidates derived knowledge, and removes affected recording media.
 
 ## Verification and troubleshooting
 
@@ -88,7 +89,7 @@ For the browser suite, build the UI, then run the fixture API in a separate term
 Before submission, at the **published URL**:
 
 - Use Chrome/Edge, deny screen permission once, then successfully share a harmless test window. Add notes, navigate, pause/resume, and play/download the actual local recording.
-- Stop recording, review all segments and markers, render covers, explicitly approve, then analyze approved frames with cloud analysis enabled; receive a real model question and answer it. Unmute and verify real ElevenLabs speech, then explicitly record/transcribe an answer.
+- Stop recording, review all segments and markers, render covers, explicitly approve, then choose Analyze approved frames; receive a supported model question or an explicit no-question outcome. Verify real ElevenLabs speech and explicit voice-answer transcription. Check optional note interjections in all three presentation modes before approving any screen content.
 - Build/review/confirm a map; generate and answer a grounded exercise. Confirm that gaps and provider failures are shown honestly.
 - Open a private browser window: it must start empty and be unable to open the first browser's workflow ID.
 - Reload and check persisted text/map/practice plus local video; confirm capture is idle. Delete the test workflow and verify its text and media disappear.

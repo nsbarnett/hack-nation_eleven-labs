@@ -1,6 +1,6 @@
 # Local review and timed redaction
 
-Browser capture and disclosure are separate. Cloud consent alone never permits a screen upload: the local rendered recording must also be explicitly approved at the server's current privacy revision.
+Browser capture and disclosure are separate. AI is available without activation switches. Screen upload still requires explicit approval of the local rendered recording at the current privacy revision and the Analyze action. Optional live reviewer interjections use typed/voice notes only.
 
 ## Local state and detection
 
@@ -24,10 +24,14 @@ Originals stay local until explicit deletion. Deleting originals after approval 
 
 Authenticated same-origin `privacy-reset` and `privacy-approve` commands require the expected revision. Committed edits increment it, revoke approval, clear derived observations/knowledge/practice and cancel pending results. Expert-entered text remains separate. `/api/frame` rejects live browser uploads. `/api/reviewed-frame` requires the current idle session and approved revision, validates metadata/payload bounds, and runs the bounded observer. Successful analyzed-frame IDs are persisted; a queued/failed request is not reported as completed analysis.
 
-The browser selects a frame every ten seconds and waits for each model job. The service holds at most three frames in memory; PostgreSQL stores text and identifiers, not media. Editing/canceling invalidates results but cannot recall a dispatched provider request. Approval records a user decision; the server cannot cryptographically prove arbitrary client pixels were redacted, so revision validation works with the app's local rendering/upload path.
+The browser scans the approved derivative locally at one-second intervals, scores the largest RGB change in a 16-pixel tile of a 320-pixel-wide thumbnail, and prefers before/after pairs for changes >=0.06 followed by a stable sample <=0.02 (the final sample is also eligible). It retains first/last frames where capacity permits and fills spare capacity with periodic samples. The original upload allowance, the sum of max(1, ceil(segment duration/10)), is retained and capped at 30 per workflow. A single clip of ten seconds or less has only one frame of capacity, so a comparison may remain unsupported. These are tuning heuristics, not proof of meaningful actions. The observer must still establish readable events. Selection is persisted per privacy revision; partially uploaded older reviews finish their fixed-interval selection without adding a second batch. Each model job must finish successfully before its frame counts as analyzed. The service holds at most three frames in memory; PostgreSQL stores text and identifiers, not media. Editing/canceling invalidates results but cannot recall a dispatched provider request. Approval records a user decision; the server cannot cryptographically prove arbitrary client pixels were redacted, so revision validation works with the app's local rendering/upload path.
 
 ## Separate disclosures
 
 Typed notes/context are stored online and may inform model requests. Explicit voice notes go to ElevenLabs for transcription; TTS sends actual assistant text. Covers do not redact speech. No system audio is recorded. Existing recordings start unreviewed, but review cannot undo earlier disclosures.
 
 There are no accounts or cloud media backups. Signed guest cookies isolate text under the seven-day policy. Deleting/forgetting evidence invalidates derived knowledge and removes affected local media after confirmation.
+
+## Workflow deletion (0.5.0)
+
+Delete appears on each workflow card and in Settings. A dialog names the workflow and requires a Delete workflow button; no phrase is typed. The guest-scoped API accepts an explicit target ID and confirmed=true. Other open workflows remain active. Capture must stop before deleting its own workflow. Target workers are canceled and local writes drained before deleting hosted data and browser assets, chunks and privacy drafts. A pending cleanup marker supports retries and reload recovery if local cleanup fails after server deletion.

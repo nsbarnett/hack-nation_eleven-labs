@@ -19,7 +19,6 @@ async function captureFixture(page: Page, denied = false) {
 async function createRecording(page: Page, title: string) {
   await page.getByRole("button", { name: "Start recording", exact: true }).click();
   await page.getByLabel("Workflow title").fill(title);
-  await page.getByRole("switch", { name: "Enable cloud analysis for this session" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Start recording", exact: true }).click();
   await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
 }
@@ -70,7 +69,12 @@ test("capture survives navigation; local media, debrief, map review and teach co
   expect(videoUploads).toEqual([]);
   await page.getByRole('navigation').getByRole('button', { name: 'Privacy Review', exact: true }).click();
   await page.getByRole('button', { name: 'Analyze approved frames' }).click();
+  await expect(page.locator('.processing-status')).toBeVisible();
+  await page.getByRole('navigation').getByRole('button', { name: 'Workflows', exact: true }).click();
+  await expect(page.locator('.processing-status')).toBeVisible();
+  await page.getByRole('navigation').getByRole('button', { name: 'Privacy Review', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Analyze approved frames' })).toBeEnabled({ timeout: 90000 });
+  await expect(page.getByText('Analysis complete. The current evidence does not support a new screen question. Add context or review the findings in Debrief.')).toBeVisible();
   expect(videoUploads.some(url => url.includes('/api/reviewed-frame'))).toBe(true);
   expect(videoUploads.every(url => url.includes('/api/reviewed-frame'))).toBe(true);
   await page.getByRole("navigation").getByRole("button", { name: "Debrief", exact: true }).click();
@@ -94,30 +98,17 @@ test("capture survives navigation; local media, debrief, map review and teach co
   await page.getByRole("navigation").getByRole("button", { name: "Teach", exact: true }).click();
   await expect(page.getByText("1 of 1 answered")).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Delete open workflow & media" }).click();
-  const deletion = page.getByRole("dialog", { name: "Delete workflow and data?" });
-  const phrase = deletion.getByLabel("Type confirm delete to continue");
-  const deleteButton = deletion.getByRole("button", { name: "Delete permanently" });
+  await page.getByRole("button", { name: "Delete Browser acceptance workflow", exact: true }).click();
+  const deletion = page.getByRole("dialog");
   await expect(deletion).toContainText("Browser acceptance workflow");
-  await expect(deleteButton).toBeDisabled();
-  for (const incorrect of ["delete", "Confirm delete", "confirm delete "]) {
-    await phrase.fill(incorrect);
-    await expect(deleteButton).toBeDisabled();
-    await phrase.press("Enter");
-    await expect(deletion).toBeVisible();
-  }
-  await phrase.fill("confirm delete");
-  await expect(deleteButton).toBeEnabled();
+  await expect(deletion.getByRole("textbox")).toHaveCount(0);
   await deletion.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(deletion).toBeHidden();
   const preserved = await (await page.request.get("/api/state")).json();
   expect(preserved.session.title).toBe("Browser acceptance workflow");
   expect(preserved.session.evidence.length).toBeGreaterThan(0);
-  await page.getByRole("button", { name: "Delete open workflow & media" }).click();
-  await expect(phrase).toHaveValue("");
-  await expect(deleteButton).toBeDisabled();
-  await phrase.fill("confirm delete");
-  await deleteButton.click();
+  await page.getByRole("button", { name: "Delete Browser acceptance workflow", exact: true }).click();
+  await deletion.getByRole("button", { name: "Delete workflow", exact: true }).click();
   await expect(deletion).toBeHidden();
   await page.getByRole("navigation").getByRole("button", { name: "Home", exact: true }).click();
   await expect(page.getByText("Your first workflow starts here")).toBeVisible();
@@ -157,7 +148,7 @@ test("reconnection recovers recording even when the final stop request was lost"
   await connection!.close({ code: 1012, reason: "Disposable test interruption" });
   await expect.poll(async () => (await (await page.request.get("/api/state")).json()).recording).toBe("idle");
   const recovered = await (await page.request.get("/api/state")).json();
-  expect(recovered.cloud).toBe(false);
+  expect(recovered.cloud).toBe(true);
   await page.unroute("**/api/command");
   await page.getByRole("navigation").getByRole("button", { name: "Home", exact: true }).click();
   await createRecording(page, "Recording after reconnection");

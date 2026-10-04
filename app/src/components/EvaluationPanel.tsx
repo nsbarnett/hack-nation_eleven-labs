@@ -21,6 +21,7 @@ export function EvaluationPanel() {
   return (
     <section className="panel evaluation-panel" aria-label="Knowledge evaluation">
       <h2>What is established?</h2>
+      <p><strong>Process evidence completeness: {report.process_score == null ? "Awaiting evidence" : `${report.process_score}%`}</strong>. This measures captured explanations, not expert verification or a person's performance.</p>
       <p className="muted">{report.debrief_complete ? "No known applicable gaps remain. Expert map review is still required before teaching." : "Open gaps remain visible until supported evidence or explicit expert review resolves them."}</p>
       <dl className="evaluation-dimensions">{rows.map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl>
       {d.answer_sufficiency.pending_evidence > 0 && <p className="small">Request the next debrief question or rebuild the map to assess newly saved explanations.</p>}

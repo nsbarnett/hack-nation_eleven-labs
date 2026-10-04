@@ -88,6 +88,18 @@ export function createWebBridge(): Desktop {
       });
       await load();
       await send("recover");
+      if (current?.guest) {
+        const prefix = `apprentice-delete:${current.guest}:`;
+        const pending = Object.keys(localStorage).filter((key) => key.startsWith(prefix));
+        for (const key of pending) {
+          const target = key.slice(prefix.length);
+          if (!/^[0-9a-f]{32}$/.test(target)) continue;
+          if (current.sessions.some((s) => s.id === target)) await send("delete-session", { id: target, confirmed: true });
+          await removeAssets(current.guest, target);
+          localStorage.removeItem(key);
+        }
+        if (pending.length) await load();
+      }
       await reconcile();
       initialized = true;
       connect();
@@ -109,12 +121,33 @@ export function createWebBridge(): Desktop {
       const before = current?.session;
       if (name === "forget" && !confirm("Forget this evidence? Derived knowledge and this workflow's recordings will be removed. This cannot be undone.")) return {};
       if (name === "delete-session") {
-        if (data.confirmation !== "confirm delete") throw new Error('Type "confirm delete" to delete this workflow.');
-        if (!before || data.expectedSessionId !== before.id) throw new Error("The open workflow changed. Close the deletion dialog and try again.");
+        if (data.confirmed !== true || !current?.guest || !/^[0-9a-f]{32}$/.test(data.id)) throw new Error("Confirm the selected workflow's deletion.");
+        const guest = current.guest, target = data.id;
+        const key = `apprentice-delete:${guest}:${target}`;
+        if (!localStorage.getItem(key) && !current.sessions.some((s) => s.id === target)) throw new Error("This workflow is no longer available.");
+        const privacy = await import("../privacy/service");
+        await privacy.prepareWorkflowDeletion(guest, target);
+        try {
+          localStorage.setItem(key, "pending");
+          if (current.sessions.some((s) => s.id === target)) {
+            try { await send(name, data); }
+            catch (error) {
+              await load();
+              if (current!.sessions.some((s) => s.id === target)) {
+                localStorage.removeItem(key);
+                throw error;
+              }
+            }
+          }
+          await removeAssets(guest, target);
+          localStorage.removeItem(key);
+          await load(); emit({ type: "state" });
+          return {};
+        } finally { privacy.finishWorkflowDeletion(target); }
       }
       const result = await send(name, data);
       await load();
-      if (before && current?.guest && ["forget", "delete-session"].includes(name)) {
+      if (before && current?.guest && name === "forget") {
         const retained = new Set(current.session?.evidence.map((e) => e.image) || []);
         await removeAssets(current.guest, before.id);
       }

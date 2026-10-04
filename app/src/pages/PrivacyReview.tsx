@@ -753,7 +753,6 @@ export function PrivacyReview() {
             disabled={
               busy ||
               draft.status !== "approved" ||
-              !data?.cloud ||
               !data.credentials.openai
             }
             onClick={() => run(() => analyzeReview(draft))}
@@ -761,10 +760,9 @@ export function PrivacyReview() {
             Analyze approved frames
           </Button>
         </div>
-        {!data?.cloud && (
+        {!data?.credentials.openai && (
           <p className="small muted">
-            Enable cloud analysis in Record when you want AI to analyze approved
-            frames. Local review works without it.
+            AI is temporarily unavailable. Contact the app owner; local review and your saved recording remain available.
           </p>
         )}
         <p role="status">

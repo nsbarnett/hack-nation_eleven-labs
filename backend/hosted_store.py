@@ -125,7 +125,9 @@ class GuestRepository:
     async def delete(self, sid):
         await self.database.call(lambda: self.database.execute(
             "DELETE FROM hosted_sessions WHERE guest=? AND id=?", (self.guest, sid)))
-        self.clear_media_cache()
+        for key in list(self.frames):
+            if key[0] == sid:
+                del self.frames[key]
 
     def clear_media_cache(self):
         self.frames.clear()

@@ -17,7 +17,7 @@ from apprentice.agents.interviewer import Interviewer
 from apprentice.agents.assessor import Assessor
 from apprentice.agents.knowledge import KnowledgeBuilder
 from apprentice.agents.tutor import Tutor
-from apprentice.domain import Session, Evidence, Message, Knowledge, GapReview, new_id
+from apprentice.domain import Session, Evidence, Message, Knowledge, GapReview, ReviewerPreferences, new_id
 from apprentice.evidence import forget, require_sources
 from apprentice import evaluation
 from apprentice.exporting import export_session
@@ -41,6 +41,8 @@ class Service:
         self.question = None
         self.practice = {"items": [], "answers": {}}
         self.jobs = set()
+        self.job_stages = {}
+        self.reviewer_assessed_input = None
         self.tasks = set()
         self.listeners = set()
         self.previous_image = None
@@ -58,7 +60,8 @@ class Service:
                 "question": self.question, "practice": self.practice, "coaching": self.coaching,
                 "credentials": {"openai": bool(self.settings.openai_key), "elevenlabs": bool(self.settings.eleven_key),
                                 "voiceId": self.settings.voice_id, "model": self.settings.model},
-                "sequence": self.sequence, "epoch": self.epoch, "busy": sorted(self.jobs), "evaluation": assessment}
+                "sequence": self.sequence, "epoch": self.epoch, "busy": sorted(self.jobs), "evaluation": assessment,
+                "processing": list(self.job_stages.values())}
 
     async def emit(self, kind="state", **data):
         self.sequence += 1
@@ -97,11 +100,12 @@ class Service:
             raise ValueError("Enable cloud analysis and configure OpenAI in Settings first.")
         if role in self.jobs or len(self.jobs) >= 3:
             raise ValueError("This assistant task is already running. Please wait.")
-        evaluation_roles = {"knowledge", "interviewer", "observer"}
+        evaluation_roles = {"knowledge", "interviewer", "observer", "assessment"}
         if role in evaluation_roles and self.jobs & evaluation_roles:
             raise ValueError("Wait for the current evidence evaluation to finish.")
         generation = self.generation
         self.jobs.add(role)
+        self.job_stages[role] = role
         self.assistant = "thinking"
         await self.emit()
 
@@ -110,6 +114,8 @@ class Service:
                 async def invoke(step, callback):
                     if generation != self.generation:
                         raise asyncio.CancelledError()
+                    self.job_stages[role] = step
+                    await self.emit()
                     return await self.work_runner(step, callback)
                 # Each stage goes through the hosted quota runner separately.
                 result = await work(invoke) if inspect.iscoroutinefunction(work) else await invoke(role, work)
@@ -128,6 +134,7 @@ class Service:
                     await self.emit("error", message=message)
             finally:
                 self.jobs.discard(role)
+                self.job_stages.pop(role, None)
                 if generation == self.generation and self.assistant == "thinking":
                     self.assistant = "watching" if self.recording == "recording" else "idle"
                 await self.emit()
@@ -174,6 +181,29 @@ class Service:
             self.cloud = bool(data["enabled"])
             if not self.cloud:
                 self.invalidate()
+        elif name == "reviewer":
+            session = self.require_session()
+            session.reviewer = ReviewerPreferences.model_validate(data)
+            self.reviewer_assessed_input = None
+            if not session.reviewer.enabled and self.question and self.question.get("phase") == "live":
+                for attempt in session.evaluation.attempts:
+                    if attempt.id == self.question["id"]:
+                        attempt.state = "deferred"
+                        evaluation.trace(session, "DEFER", "Interjections disabled; question retained for Debrief.", attempt.gap_id)
+            self.invalidate(preserve_question=True)
+            self.restore_question()
+        elif name == "reviewer-tick":
+            if self.recording != "recording" or not self.require_session().reviewer.enabled:
+                return {}
+            duration = float(data.get("duration", self.session.duration))
+            if not 0 <= duration <= 301:
+                raise ValueError("Invalid recording duration.")
+            self.session.duration = max(self.session.duration, duration)
+            if data.get("available") is True:
+                if data.get("retry") is True:
+                    self.reviewer_assessed_input = None
+                await self.maybe_interject()
+            return {}
         elif name == "recording":
             session = self.require_session()
             state = data["state"]
@@ -297,27 +327,39 @@ class Service:
                 return {}
             evaluation.refresh(self.require_session())
             session = self.require_session().model_copy(deep=True)
+            reviewed = "_review_revision" in data
+            def candidate():
+                decision_ids = None
+                if reviewed:
+                    usable = {d.id for d in evaluation.refresh(session).decisions if d.observation_usable}
+                    decision_ids = {evaluation.observation_decision(o) for o in session.observations
+                                    if set(o.evidence_ids) & set(session.privacy.analyzed_frames)} & usable
+                return evaluation.next_gap(session, decision_ids=decision_ids)
             self.session.phase = "debrief"
             def apply(result):
                 assessed, gap_id, wording = result
                 self.session.evaluation = assessed
+                if data.get("_review_revision") == self.session.privacy.revision:
+                    self.session.privacy.question_revision = self.session.privacy.revision
                 gap = next((g for g in assessed.gaps if g.id == gap_id), None)
                 if gap:
                     self.ask_evaluated(gap, text=wording)
                 else:
                     complete = evaluation.summary(self.session)["debrief_complete"]
-                    self.session.messages.append(Message(role="assistant", text="No unresolved applicable gaps remain. Review your Work Map before teaching." if complete else "Evidence still needs assessment. Open gaps remain listed."))
+                    message = ("Analysis complete. No supported screen question is needed from the current evidence. You can add context or continue in Debrief." if reviewed else
+                               "No unresolved applicable gaps remain. Review your Work Map before teaching." if complete else "Evidence still needs assessment. Open gaps remain listed.")
+                    self.session.messages.append(Message(role="assistant", text=message))
             async def debrief(run):
                 if evaluation.pending_sources(session):
                     session.evaluation = await run("assessment", lambda: Assessor(Gateway(self.settings)).run(session))
-                gap = evaluation.next_gap(session)
+                gap = candidate()
                 wording = None
                 # Fixed questions cover specific fields. Contextualize only broad rule gaps.
                 if gap and gap.field == "rule":
                     result = await run("interviewer", lambda: Interviewer(Gateway(self.settings)).debrief(session, gap))
                     wording = result.question
                 return session.evaluation, gap.id if gap else None, wording
-            gap = evaluation.next_gap(session)
+            gap = candidate()
             if not evaluation.pending_sources(session) and (not gap or gap.field != "rule"):
                 apply((session.evaluation, gap.id if gap else None, None))
                 await self.persist()
@@ -425,7 +467,7 @@ class Service:
 
     def ask_evaluated(self, gap, *, phase="debrief", text=None):
         attempt = evaluation.ask_gap(self.session, gap, phase, text)
-        self.question = {"id": attempt.id, "text": attempt.text, "evidence_ids": attempt.evidence_ids, "gap_id": attempt.gap_id}
+        self.question = self.question_payload(attempt)
         self.session.messages.append(Message(role="assistant", text=attempt.text, evidence_ids=attempt.evidence_ids))
         self.assistant = "question"
 
@@ -433,8 +475,37 @@ class Service:
         evaluation.refresh(self.session)
         attempt = next((a for a in self.session.evaluation.attempts if a.state == "asking"), None)
         if attempt:
-            self.question = {"id": attempt.id, "text": attempt.text, "evidence_ids": attempt.evidence_ids, "gap_id": attempt.gap_id}
+            self.question = self.question_payload(attempt)
             self.assistant = "question"
+
+    @staticmethod
+    def question_payload(attempt):
+        return {"id": attempt.id, "text": attempt.text, "evidence_ids": attempt.evidence_ids,
+                "gap_id": attempt.gap_id, "phase": attempt.phase,
+                "priority_score": attempt.priority_score, "process_score": attempt.process_score}
+
+    async def maybe_interject(self):
+        session = self.require_session()
+        if self.question or self.jobs or not session.reviewer.enabled or self.recording != "recording":
+            return
+        asked = [a.timestamp for a in session.evaluation.attempts if a.phase == "live"]
+        if ((asked and session.duration - max(asked) < evaluation.CONFIG.live_cooldown_s)
+                or sum(session.duration - t < 600 for t in asked) >= evaluation.CONFIG.live_budget_per_10min):
+            return
+        if evaluation.pending_sources(session):
+            signature = (session.id, tuple(e.id for e in evaluation.pending_sources(session)))
+            if signature == self.reviewer_assessed_input:
+                return  # Failed input is retried explicitly, not every timer tick.
+            self.reviewer_assessed_input = signature
+            snapshot = session.model_copy(deep=True)
+            def apply(result):
+                self.session.evaluation = result
+            await self.launch("assessment", lambda: Assessor(Gateway(self.settings)).run(snapshot), apply)
+            return
+        gap = evaluation.next_gap(session, "live")
+        if gap:
+            self.ask_evaluated(gap, phase="live")
+            await self.persist()
 
     async def frame(self, payload, duration, idle, evidence_id=None):
         async with self.lock:

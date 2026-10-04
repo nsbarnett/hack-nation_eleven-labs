@@ -46,19 +46,23 @@ export const useApp = create<Store>((set, get) => ({
       throw error;
     }
   },
-  fail: (error) =>
-    set({ error: error instanceof Error ? error.message : String(error) }),
+  fail: (error) => {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    set({ error: error instanceof Error ? error.message : String(error) });
+  },
 }));
 export const useMedia = create<{
   status: MediaStatus;
   stream: MediaStream | null;
   sourceName: string;
   safePreview: boolean;
+  lastInteractionAt: number;
 }>(() => ({
   status: { state: "idle", muted: true, voice: "idle", duration: 0 },
   stream: null,
   sourceName: "",
   safePreview: false,
+  lastInteractionAt: 0,
 }));
 export function report(error: unknown) {
   useApp.getState().fail(error);

@@ -217,7 +217,7 @@ def create_web_app(database_url=None, secret=None, settings=None, *, production=
         entry = request.state.entry
         async with entry.service.lock:
             state = await entry.service.snapshot()
-        return {**state, "version": "0.4.0", "hosted": True, "guest": request.state.guest,
+        return {**state, "version": "0.5.0", "hosted": True, "guest": request.state.guest,
                 "limits": {"recordingSeconds": 300, "mediaBytes": 100_000_000, "dailyAiCalls": guest_limit},
                 "media": {"state": "idle", "muted": True, "voice": "idle", "duration": 0}}
 

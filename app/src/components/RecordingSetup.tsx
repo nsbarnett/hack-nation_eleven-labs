@@ -37,7 +37,7 @@ export function RecordingSetup({
         captured = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: false });
       } else if (!source) throw new Error("Choose a screen or window.");
       if (newWorkflow)
-        await useApp.getState().command("new", { title, context, cloud });
+        await useApp.getState().command("new", { title, context, cloud: window.desktop.platform === "web" || cloud });
       await startRecording(source || undefined, captured);
       useApp.getState().go("Record");
       onChange(false);
@@ -75,11 +75,7 @@ export function RecordingSetup({
               placeholder="What are you doing, and what should the apprentice learn?"
             />
           </label>
-          <Toggle
-            label="Enable cloud analysis for this session"
-            checked={cloud}
-            onChange={setCloud}
-          />
+          {window.desktop.platform !== "web" && <Toggle label="Enable cloud analysis for this session" checked={cloud} onChange={setCloud} />}
         </>
       )}
       {window.desktop.platform !== "web" && <><div className="section-heading">

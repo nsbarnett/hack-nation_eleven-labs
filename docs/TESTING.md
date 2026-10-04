@@ -1,5 +1,20 @@
 # Hosted browser validation
 
+## Core AI and workflow deletion (0.5.0, October 4, 2026)
+
+Local Windows results:
+
+- 141 Python tests passed (`tests` and `EvalTest`). Coverage includes provider availability after creation/reopen/recovery, note-only live interjections, score/age/cooldown eligibility, provider failure backoff, one automatic question per approved revision, unsupported observations, ownership, inactive-workflow isolation, deletion retry, and late AI results after deletion.
+- 11 renderer tests passed, including before/after selection within the existing upload budget, the 30-frame cap, and sensitivity to small field changes.
+- 16 browser acceptance cases passed in Edge. They use the actual browser build, API, MediaRecorder, IndexedDB, local OCR and video workers, with deterministic provider responses. A real eleven-second canvas capture produces two approved-frame uploads and one persistent change question; repeating analysis neither reuploads nor duplicates the question. Short routine capture produces the explicit no-question notice.
+- Browser cases verify Text only / Voice only / Text and voice, preference persistence, no live screen uploads, text fallback on speech failure, context/Work Map/frame progress across navigation, and Home/Workflows/Settings deletion controls. Named confirmation can be canceled; local cleanup failure remains retryable after server deletion. Deleting a pending local render drains processing and leaves no assets, chunks or review draft after the delayed work would have finished.
+- TypeScript, extension type checks, and the production browser/companion build passed. Vite still reports its existing bundle-size and mixed static/dynamic-import advisories.
+- The companion extension acceptance case passed in Edge: stable mounting, controls, dragging, status updates and reconnect.
+
+Speech requests/playback failure are simulated in these browser tests; live ElevenLabs audio, microphone hardware, independently labeled model quality, production PostgreSQL and the current Replit deployment were not validated in this revision. See [brief alignment](BRIEF_ALIGNMENT.md) for challenge criteria that the selected notes-during-recording privacy flow does not meet.
+
+Build the UI, start the test-only fixture server on port 3001, then run `npm run test:web` from `app/`. Never publish `tests.web_fixture:app`.
+
 ## Privacy review and extension (0.4.0, October 4, 2026)
 
 Local results on Windows:

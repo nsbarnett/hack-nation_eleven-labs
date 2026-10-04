@@ -15,6 +15,7 @@ import { detectLines } from "./detect";
 import { paintCovers, validateCovers } from "./geometry";
 import { appendAsset, beginAsset, finishAsset } from "../web/localMedia";
 import type { Cover, Segment } from "./types";
+import { frameDifference, type Sample } from "./selection";
 
 let ocr: OCRWorker | undefined;
 const post = (data: unknown) => self.postMessage(data);
@@ -64,7 +65,25 @@ self.onmessage = async ({ data }) => {
         height: track.displayHeight,
       };
       post({ type: "metadata", segment });
-      if (data.op === "scan") {
+      if (data.op === "select") {
+        const sink = new CanvasSink(track, { width: 320, poolSize: 1 });
+        const thumb = new OffscreenCanvas(320, Math.max(1, Math.round(320 * segment.height / segment.width)));
+        const context = thumb.getContext("2d", { willReadFrequently: true })!;
+        let previous: Uint8ClampedArray | undefined;
+        const samples: Sample[] = [];
+        const end = Math.max(0, duration - 0.01);
+        const times = [...Array.from({ length: Math.ceil(duration) }, (_, i) => i), end];
+        for (const time of [...new Set(times.map((t) => Math.round(Math.min(t, end) * 1000) / 1000))]) {
+          const frame = await sink.getCanvas(Math.max(time, await track.getFirstTimestamp()));
+          if (!frame) throw new Error("A reviewed frame could not be decoded. Retry frame preparation.");
+          context.drawImage(frame.canvas, 0, 0, thumb.width, thumb.height);
+          const pixels = context.getImageData(0, 0, thumb.width, thumb.height).data;
+          samples.push({ time, change: previous ? frameDifference(previous, pixels, thumb.width, thumb.height) : 0 });
+          previous = pixels;
+          post({ type: "progress", progress: time / duration });
+        }
+        post({ type: "done", samples });
+      } else if (data.op === "scan") {
         const sink = new VideoSampleSink(track),
           thumb = new OffscreenCanvas(32, 18),
           tc = thumb.getContext("2d", { willReadFrequently: true })!;

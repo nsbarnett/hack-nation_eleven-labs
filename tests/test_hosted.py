@@ -167,7 +167,7 @@ def test_recover_and_database_restart_preserve_text_but_not_capture(tmp_path):
         second.cookies.set(COOKIE, cookie, domain="testserver.local", path="/")
         snapshot = state(second)
         assert snapshot["session"]["evidence"][0]["text"] == "Expert reasoning"
-        assert snapshot["recording"] == "idle" and not snapshot["cloud"]
+        assert snapshot["recording"] == "idle" and snapshot["cloud"]
 
 
 def test_forget_and_delete_clear_derived_data(client):
@@ -187,7 +187,7 @@ def test_forget_and_delete_clear_derived_data(client):
         assert len(state(client)["sessions"]) == 1
     assert command(client, "delete-session", {"confirmation": "confirm delete"}, sid="stale-workflow").status_code == 400
     assert state(client)["session"]["id"] == snapshot["session"]["id"]
-    assert command(client, "delete-session", {"confirmation": "confirm delete"}).status_code == 200
+    assert command(client, "delete-session", {"id": state(client)["session"]["id"], "confirmed": True}).status_code == 200
     assert state(client)["sessions"] == [] and state(client)["session"] is None
 
 
@@ -207,7 +207,7 @@ def test_pending_ai_cannot_resurrect_deleted_session(tmp_path, monkeypatch):
         command(client, "note", {"text": "Real input"})
         assert command(client, "build-map").status_code == 200
         assert started.wait(2)
-        assert command(client, "delete-session", {"confirmation": "confirm delete"}).status_code == 200
+        assert command(client, "delete-session", {"id": state(client)["session"]["id"], "confirmed": True}).status_code == 200
         release.set()
         for _ in range(50):
             if not state(client)["busy"]: break

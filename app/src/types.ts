@@ -25,6 +25,7 @@ export type Knowledge = {
   check?: { conditions: { field: string; operator: string; value: string }[]; field: string; operator: string; value: string } | null;
 };
 export type Evaluation = {
+  process_score?: number | null;
   debrief_complete: boolean;
   open_critical: string[];
   dimensions: {
@@ -39,7 +40,8 @@ export type Evaluation = {
   trace: { code: string; gap_id: string; detail: string }[];
 };
 export type Workflow = {
-  privacy: { revision: number; status: "unreviewed" | "approved"; analyzed_frames?: string[] };
+  reviewer?: { enabled: boolean; presentation: "text" | "voice" | "both" };
+  privacy: { revision: number; status: "unreviewed" | "approved"; analyzed_frames?: string[]; question_revision?: number };
   id: string;
   title: string;
   context: string;
@@ -77,8 +79,9 @@ export type State = {
   cloud: boolean;
   recording: string;
   assistant: string;
-  question: { id: string; text: string; evidence_ids: string[] } | null;
+  question: { id: string; text: string; evidence_ids: string[]; phase?: "live" | "debrief"; priority_score?: number; process_score?: number | null } | null;
   busy: string[];
+  processing?: string[];
   coaching: boolean;
   practice: {
     items: { question: string; knowledge_ids: string[]; scenario?: { field: string; value: string }[]; answer_fields?: string[] }[];

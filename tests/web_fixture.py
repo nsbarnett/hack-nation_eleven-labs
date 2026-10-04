@@ -1,21 +1,35 @@
 """Deterministic provider fixtures ONLY for browser automation; never used by backend.web."""
 from pathlib import Path
 import os
+import time
 
 from apprentice.agents.gateway import Gateway
 from apprentice.config import Settings
-from apprentice.domain import AssessmentResult, Condition, DraftKnowledge, EventResult, EvidenceQuote, FieldAssessment, MapResult, ObservationResult, QuestionResult, RuleCheck, TutorJudgment, TutorResult
+from apprentice.domain import AssessmentResult, Condition, DraftKnowledge, EventResult, EvidenceQuote, FieldAssessment, GapProposal, MapResult, ObservationResult, QuestionResult, RuleCheck, SeenEvent, TutorJudgment, TutorResult
 from backend.training import CaseValue, Exercises, Exercise
 from backend.web import create_web_app
 
 
 def request(self, schema, instructions, data, images=None):
+    if ((schema is MapResult and data.get("task") == "Processing feedback fixture") or
+            (schema is AssessmentResult and any("processing feedback fixture" in e["text"] for e in data["expert_evidence"]))):
+        time.sleep(2)  # Make both actual backend stages observable across navigation.
     if schema is AssessmentResult:
+        if any("interjection fixture" in e["text"] for e in data["expert_evidence"]):
+            return AssessmentResult(assessments=[FieldAssessment(decision_id="text:"+e["id"], field="reason",
+                outcome="uncertain", claim="", confidence=.9, rationale="The reported change has no explanation.",
+                citations=[EvidenceQuote(evidence_id=e["id"], quote=e["text"])])
+                for e in data["expert_evidence"] if e["id"] in data["pending_evidence_ids"]], gaps=[])
         return AssessmentResult(assessments=[FieldAssessment(decision_id=data["decisions"][0]["id"], field="rule",
             outcome="uncertain", claim="", confidence=.9, rationale="Synthetic fixture leaves the gap open.",
             citations=[EvidenceQuote(evidence_id=e["id"], quote=e["text"])])
             for e in data["expert_evidence"] if e["id"] in data["pending_evidence_ids"]], gaps=[])
     if schema is EventResult:
+        if data["task"] == "Screen change fixture" and len(data["new_image_ids"]) >= 2 and not data["observations"]:
+            return EventResult(actions=[SeenEvent(summary="Cost center changed", evidence_ids=data["new_image_ids"],
+                event_type="field_changed", case_id="test-case", field_name="cost center", before="4711", after="0400",
+                before_readable=True, after_readable=True, before_was_default=False, confidence=.98,
+                fields_answered_on_screen=[])])
         return EventResult(actions=[])
     if schema is ObservationResult:
         return ObservationResult(actions=[])

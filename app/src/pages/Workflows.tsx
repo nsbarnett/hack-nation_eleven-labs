@@ -2,6 +2,7 @@ import { useState } from "react";
 import { GitBranch, Search, ArrowUpRight } from "lucide-react";
 import { useApp, run } from "../stores";
 import { Empty, Button } from "../components/Controls";
+import { DeleteWorkflow } from "../components/DeleteWorkflow";
 export function Workflows({ onRecord }: { onRecord: () => void }) {
   const [query, setQuery] = useState("");
   const sessions = useApp((s) => s.data!.sessions);
@@ -30,9 +31,10 @@ export function Workflows({ onRecord }: { onRecord: () => void }) {
         {sessions
           .filter((s) => s.title.toLowerCase().includes(query.toLowerCase()))
           .map((s) => (
+            <article key={s.id} className="workflow-card panel">
             <button
               key={s.id}
-              className="workflow-card panel"
+              className="workflow-open"
               onClick={() =>
                 run(async () => {
                   await useApp.getState().command("open", { id: s.id });
@@ -52,6 +54,8 @@ export function Workflows({ onRecord }: { onRecord: () => void }) {
                 {s.confirmed ? "Expert confirmed" : "Draft"}
               </span>
             </button>
+            <DeleteWorkflow workflow={s} />
+            </article>
           ))}
       </div>
       {!sessions.length && (

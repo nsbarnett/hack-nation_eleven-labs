@@ -1,5 +1,43 @@
 # Knowledge and learner evaluation
 
+## Browser reviewer (0.5.0)
+
+AI no longer requires activation switches. After approved-frame analysis, pending
+expert text is assessed and one usable visual gap is selected automatically.
+Completion persists per privacy revision: retries cannot ask repeatedly, and empty
+or uncertain observations produce a no-question outcome. Optional Record-screen
+interjections use typed/voice notes only, with Text only / Voice only / Text and
+voice presentation. The microphone opens only for an explicit voice answer.
+
+### Scores and timing
+
+These are initial tuning values, not calibrated probabilities or ratings of people.
+Expert verification and learner correctness remain separate dimensions.
+
+- Gap weight: guardrail/escalation/contradiction = 3; cue = 1; other fields = 2.
+- Completeness credit: open/disputed = 0, partial = 0.5; observed, expert-stated,
+  verified and explicitly not-applicable = 1. Weighted credits / total weight
+  gives process evidence completeness on 0-100. No gaps means no score.
+- Question priority = 60 × weight / 3 + 25 × (1 − decision completeness / 100)
+  + 15 × observation confidence. Direct expert text uses confidence 1 for the
+  supplied statement, without asserting that the statement is true.
+- Selection retains criticality order, then fewest earlier attempts, descending
+  question priority, reason-gap tie-break, confidence, and stable gap order.
+- Live eligibility requires priority >=60, usable evidence, no active question,
+  evidence age <=120 session seconds, a 45-second cooldown, and no more than five
+  live questions per rolling 600 seconds. Input in Apprentice postpones eligibility
+  for three seconds; listening/speaking also postpones it. External-app activity
+  and reading are not detected.
+
+Attempts persist priority and overall completeness at selection; the trace records
+the field, score and gap state. High aggregate completeness never hides a critical
+gap or grants expert verification. Disabling interjections defers the active live
+question. Failed note assessment retries only on new input or **Review saved notes**,
+not each timer tick. Failed speech displays the question as text with a replay action.
+
+See [brief alignment](BRIEF_ALIGNMENT.md) for the remaining live-screen and teaching
+criteria. Later historical sections describe the original explicit-Ready behavior.
+
 Implemented in `apprentice/evaluation.py`, `apprentice/agents/assessor.py`, the
 session contracts in `apprentice/domain.py`, and the backend service. This is the
 production adaptation of the ideas in `EvalTest`; the original sandbox remains

@@ -1,4 +1,5 @@
 """Reuse the learning pipeline with browser-owned media and hosted text storage."""
+import asyncio
 import math
 import re
 import io
@@ -14,10 +15,15 @@ from apprentice import evaluation
 IDENTIFIER = re.compile(r"^[0-9a-f]{32}$")
 ALLOWED = {"new", "open", "cloud", "recording", "note", "defer", "build-map", "debrief",
            "edit-knowledge", "confirm", "forget", "practice", "tutor", "coaching",
-           "local-frame", "local-segment", "delete-session", "recover", "privacy-reset", "privacy-approve", "review-gap"}
+           "local-frame", "local-segment", "delete-session", "recover", "privacy-reset", "privacy-approve", "review-gap",
+           "reviewer", "reviewer-tick", "review-complete"}
 
 
 class HostedService(Service):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cloud = True
+
     def clear_screen_derivatives(self):
         """Keep expert text; discard knowledge which may depend on old screen pixels."""
         self.invalidate()
@@ -27,6 +33,7 @@ class HostedService(Service):
         session.privacy.status = "unreviewed"
         session.privacy.revision += 1
         session.privacy.analyzed_frames = []
+        session.privacy.question_revision = -1
         session.evidence = [e for e in session.evidence if e.kind not in {"screen", "trainee_screen"}]
         session.observations = []
         session.knowledge = []
@@ -37,12 +44,12 @@ class HostedService(Service):
 
     async def launch(self, role, work, apply):
         session = self.require_session()
-        if (session.recordings or self.recording != "idle" or any(e.image for e in session.evidence)) and session.privacy.status != "approved":
+        note_interjection = role == "assessment" and self.recording == "recording" and session.reviewer.enabled
+        if not note_interjection and (session.recordings or self.recording != "idle" or any(e.image for e in session.evidence)) and session.privacy.status != "approved":
             raise ValueError("Review and approve the recording's privacy edits before using screen-based AI.")
         if not self.settings.openai_key:
             raise ValueError("The hosted OpenAI connection is unavailable. Manual notes and recording still work.")
-        if not self.cloud:
-            raise ValueError("Enable 'Use AI for this workflow' before requesting model analysis.")
+        self.cloud = True
         return await super().launch(role, work, apply)
 
     async def persist(self):
@@ -63,9 +70,51 @@ class HostedService(Service):
         if name not in ALLOWED:
             raise ValueError("That operation is not available in the browser edition.")
         async with self.lock:
+            if name == "delete-session":
+                target = str(data.get("id", ""))
+                if data.get("confirmed") is not True or not IDENTIFIER.fullmatch(target):
+                    raise ValueError("Confirm the selected workflow's deletion.")
+                await self.repo.load(target)  # Guest-scoped ownership check.
+                active = self.session and target == self.session.id
+                if active:
+                    if self.recording != "idle":
+                        raise ValueError("Stop recording before deleting this workflow.")
+                    self.invalidate(preserve_question=True)
+                    tasks = tuple(self.tasks)
+                    for task in tasks:
+                        task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                try:
+                    await self.repo.delete(target)
+                except Exception:
+                    if active:
+                        self.restore_question()
+                    raise
+                if active:
+                    self.session = None
+                    self.practice = {"items": [], "answers": {}}
+                await self.emit()
+                return {}
             if name not in {"new", "open", "recover"}:
                 if not self.session or sid != self.session.id:
                     raise ValueError("The open workflow changed. Refresh before trying again.")
+            if name == "cloud":
+                self.cloud = True  # Compatibility: AI is a built-in browser capability.
+                await self.emit()
+                return {}
+            if name == "review-complete":
+                session = self.require_session()
+                if session.privacy.status != "approved" or data.get("revision") != session.privacy.revision:
+                    raise ValueError("The privacy revision changed. Review it before analysis.")
+                if self.jobs or self.recording != "idle" or not session.privacy.analyzed_frames:
+                    raise ValueError("Finish analyzing the approved frames first.")
+                if session.privacy.question_revision == session.privacy.revision:
+                    return {}
+                if self.question:
+                    session.privacy.question_revision = session.privacy.revision
+                    await self.persist()
+                    return {}
+                return await self._command("debrief", {"_review_revision": session.privacy.revision})
             if name == "new" and len(await self.repo.list()) >= 10:
                 raise LimitError("This browser has ten saved workflows. Delete or export one before creating another.")
             if name in {"note", "defer"} and "expectedQuestionId" in data:
@@ -122,24 +171,12 @@ class HostedService(Service):
                     self.session.duration = max(self.session.duration, start + duration)
                 await self.persist()
                 return {}
-            if name == "delete-session":
-                if data.get("confirmation") != "confirm delete":
-                    raise ValueError('Type "confirm delete" to delete this workflow.')
-                if self.recording != "idle":
-                    raise ValueError("Stop recording before deleting this workflow.")
-                self.invalidate()
-                await self.repo.delete(self.session.id)
-                self.session = None
-                self.practice = {"items": [], "answers": {}}
-                self.cloud = False
-                await self.emit()
-                return {}
             if name == "recover":
                 # A browser refresh cannot restore MediaStream tracks. Keep its text
                 # and local chunks, but never claim capture is still running.
                 self.invalidate(preserve_question=True)
                 self.recording = "idle"
-                self.cloud = False
+                self.cloud = True
                 self.coaching = False
                 if self.session:
                     self.restore_question()
@@ -147,6 +184,7 @@ class HostedService(Service):
                 return {}
             runtime = await self.repo.runtime(data["id"]) if name == "open" else None
             result = await self._command(name, data)
+            self.cloud = True
             if name == "forget":
                 self.clear_screen_derivatives()
                 await self.persist()
@@ -166,8 +204,8 @@ class HostedService(Service):
                 raise ValueError("Stop recording and open the reviewed workflow first.")
             if session.privacy.status != "approved" or revision != session.privacy.revision:
                 raise ValueError("This privacy revision is not approved.")
-            if not self.cloud or not self.settings.openai_key:
-                raise ValueError("Enable cloud analysis and configure OpenAI before analyzing reviewed frames.")
+            if not self.settings.openai_key:
+                raise ValueError("The hosted AI connection is unavailable. Contact the app owner.")
             if not IDENTIFIER.fullmatch(identifier) or not math.isfinite(duration) or not 0 <= duration <= session.duration + 1:
                 raise ValueError("Invalid reviewed frame metadata.")
             if identifier in session.privacy.analyzed_frames:
@@ -194,7 +232,7 @@ class HostedService(Service):
                 self.session.observations.extend(result)
                 self.session.privacy.analyzed_frames.append(identifier)
                 # Historical frames are never rejected because the recording has ended.
-                # Ask on explicit Debrief request, after all reviewed frames are analyzed.
+                # Automatic question selection runs after the whole approved batch.
                 evaluation.refresh(self.session)
             await self.launch("observer", lambda: Observer(Gateway(self.settings)).run(snapshot, images), apply)
             await self.persist()

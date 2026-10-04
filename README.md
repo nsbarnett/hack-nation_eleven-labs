@@ -4,7 +4,7 @@ Evaluation dimensions, parameters, gap decisions, and regression commands are do
 
 Record real work, review sensitive screen content locally, then turn approved evidence into a Work Map and grounded teaching exercises. New workspaces are empty: no sample workflows, conversations, metrics, or fallback AI results are installed.
 
-**`main` is the browser edition, version 0.4.0.** The [Electron desktop backup](https://github.com/nsbarnett/hack-nation_eleven-labs/tree/electron-desktop-backup) preserves version 0.2.0. Desktop source remains for shared logic, but the supported entry point on `main` is FastAPI serving the browser app. This change does not rebuild the Electron installer.
+**`main` is the browser edition, version 0.5.0.** The [Electron desktop backup](https://github.com/nsbarnett/hack-nation_eleven-labs/tree/electron-desktop-backup) preserves version 0.2.0. Desktop source remains for shared logic, but the supported entry point on `main` is FastAPI serving the browser app. This change does not rebuild the Electron installer.
 
 The [Replit workspace](https://replit.com/@nsbarnett/hack-nationeleven-labs) is the hosting target. This revision and its extension are built locally; a published production URL is **not verified**. Follow [Replit setup](docs/REPLIT.md) to rebuild/restart or publish. A development preview is not a permanent submission URL.
 
@@ -16,19 +16,21 @@ The [Replit workspace](https://replit.com/@nsbarnett/hack-nationeleven-labs) is 
 2. Video and sampled screenshots stay in IndexedDB. Local English OCR suggests sensitive moments during capture. After stopping, a sequential scan checks frames for scene changes and runs OCR at half-second intervals and detected cuts. Progress and gaps are shown.
 3. In **Privacy Review**, seek to markers, resolve suggestions, draw solid covers, adjust start/end times, and add position keyframes. Split covers at cuts. Add markers/covers wherever detection missed something.
 4. Render a separate WebM with covers permanently encoded into its pixels. Preview it, acknowledge reviewing all segments/gaps, and explicitly approve the revision, even if there are no findings.
-5. With cloud analysis enabled, choose **Analyze approved frames**. Only frames decoded from the redacted copy are uploaded. Screen questions follow analysis, not live capture. Typed context and explicitly initiated voice notes have separate handling.
+5. Choose **Analyze approved frames**. AI is built in whenever its provider is connected; reopening and refreshing do not disable it. Only frames decoded from the approved redacted copy are uploaded. Bounded before/after selection helps capture visible changes. Analysis automatically surfaces one supported question, or explains why no new screen question is supported, with a persistent link to Debrief.
 6. Build, edit, verify, and confirm the Work Map. Generate labeled practice or ask the tutor about confirmed knowledge. Browser live-screen coaching is withheld under the review-first policy; the Electron backup retains that earlier feature.
 
 Recording, local privacy editing, and manual notes work without provider keys. Detection can miss information, does not recognize faces or general names/addresses, and cannot guarantee safety.
+
+On **Record**, optional reviewer interjections use typed and explicitly initiated voice notes during capture. Choose Text only, Voice only, or Text and voice; mute remains available. Process evidence scores prioritize meaningful gaps. Screens are analyzed only after approval. Context evaluation, question preparation, frame progress, and Work Map processing remain visible across pages. See [scores and decisions](docs/EVALUATION.md) and [challenge brief alignment](docs/BRIEF_ALIGNMENT.md).
 
 ## Screens and sections
 
 | Screen | Purpose |
 | --- | --- |
 | Home | Start capture and reopen actual saved workflows; useful empty states. |
-| Record | State, timer, pause/resume/stop, safe preview, observed steps, context, voice answers and cloud/voice preferences. During capture: “Recording locally · Privacy review pending.” |
+| Record | State, timer, pause/resume/stop, safe preview, observed steps, context, voice answers and optional reviewer interjections with text/voice presentation. During capture: “Recording locally · Privacy review pending.” |
 | Privacy Review | Labeled original playback, segments, markers, frame steps, findings, timed covers, keyframes, cut splitting, local scan/render progress, approval, and approved-frame analysis. Explicit deletion of originals after approval. |
-| Workflows | Search/open guest-owned workflows and inspect confirmation state. |
+| Workflows | Search/open guest-owned workflows and inspect confirmation state. Delete any selected workflow with a named confirmation dialog; recording must stop before deleting the active capture. Home and Settings reuse this deletion flow. |
 | Work Map | Build an evidence-linked draft, edit/reject/verify steps, confirm knowledge, and export JSON. |
 | Debrief | Request supported follow-up questions and capture expert explanations. |
 | Teach | Generate grounded exercises, keep trainee answers separate, calculate actual progress and ask a tutor about confirmed knowledge. |

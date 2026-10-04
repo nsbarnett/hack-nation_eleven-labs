@@ -4,6 +4,7 @@ import { useApp, useMedia, run } from "../stores";
 import { stopRecording, startRecording, canResume } from "../media";
 import { Button, Empty } from "../components/Controls";
 import { AssistantPanel } from "../components/AssistantPanel";
+import { ReviewerControls } from "../components/ReviewerControls";
 export function duration(value: number) {
   return new Date(value * 1000).toISOString().slice(11, 19);
 }
@@ -72,11 +73,12 @@ export function Record({ onRecord }: { onRecord: () => void }) {
         )}
       </div>
       {window.desktop.platform === "web" && <div className="notice-banner">
-        <span>{media.status.state === "recording" ? "Recording locally · Privacy review pending" : "Review your recording before sharing screen content with AI."}</span>
+        <span>{media.status.state === "recording" ? "Recording locally Â· Privacy review pending" : "Review your recording before sharing screen content with AI."}</span>
         {!!session?.recordings.length && media.status.state === 'idle' && <Button onClick={() => useApp.getState().go('Privacy Review')}>Review privacy</Button>}
       </div>}
       <div className="record-layout">
         <div className="record-workspace">
+          {window.desktop.platform === "web" && <ReviewerControls key={session?.id} />}
           <section className="preview panel">
             {media.stream && media.safePreview ? (
               <video ref={ref} autoPlay muted playsInline />
@@ -121,8 +123,8 @@ export function Record({ onRecord }: { onRecord: () => void }) {
                 icon={<Clock size={22} />}
                 heading="A clear trail of your work"
               >
-                With cloud analysis enabled, meaningful observed actions appear
-                here. You can add notes at any time while recording.
+                Meaningful screen actions appear after you analyze the approved
+                recording. Add notes now so the reviewer can ask about your reasoning.
               </Empty>
             )}
           </section>

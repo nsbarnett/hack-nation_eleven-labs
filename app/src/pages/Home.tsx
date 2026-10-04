@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useApp, run } from "../stores";
 import { Button, Empty } from "../components/Controls";
+import { DeleteWorkflow } from "../components/DeleteWorkflow";
 export function Home({ onRecord }: { onRecord: () => void }) {
   const sessions = useApp((s) => s.data!.sessions);
   const go = useApp((s) => s.go);
@@ -53,9 +54,9 @@ export function Home({ onRecord }: { onRecord: () => void }) {
       {sessions.length ? (
         <div className="panel workflow-list">
           {sessions.slice(0, 5).map((s) => (
+            <div className="workflow-list-item" key={s.id}>
             <button
               className="workflow-row"
-              key={s.id}
               onClick={() =>
                 run(async () => {
                   await useApp.getState().command("open", { id: s.id });
@@ -77,6 +78,8 @@ export function Home({ onRecord }: { onRecord: () => void }) {
               </span>
               <ArrowRight size={16} />
             </button>
+            <DeleteWorkflow workflow={s} />
+            </div>
           ))}
         </div>
       ) : (

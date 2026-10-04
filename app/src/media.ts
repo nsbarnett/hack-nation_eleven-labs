@@ -57,13 +57,13 @@ export function toggleMute() {
   status({ muted: !useMedia.getState().status.muted });
 }
 export async function speak(text: string) {
-  if (useMedia.getState().status.muted) return;
+  if (useMedia.getState().status.muted) return false;
   cancelVoice();
   const generation = voiceGeneration;
   status({ voice: "thinking" });
   try {
     const bytes = await window.desktop.speech(text);
-    if (generation !== voiceGeneration) return;
+    if (generation !== voiceGeneration) return false;
     audio = new Audio(
       URL.createObjectURL(
         new Blob([new Uint8Array(bytes)], { type: "audio/mpeg" }),
@@ -72,10 +72,12 @@ export async function speak(text: string) {
     status({ voice: "speaking" });
     audio.onended = () => cancelVoice();
     await audio.play();
+    return true;
   } catch (error) {
-    if (generation !== voiceGeneration) return;
+    if (generation !== voiceGeneration) return false;
     cancelVoice();
     report(error);
+    return false;
   }
 }
 export async function voiceNote() {
@@ -247,7 +249,7 @@ export async function startRecording(selected?: Source, preparedStream?: MediaSt
       sourceName: source.name,
       safePreview: hosted ? stream.getVideoTracks()[0].getSettings().displaySurface === "window" : source.id.startsWith("window:"),
     });
-    status({ state: "recording", duration: elapsed() });
+    status({ state: "recording", duration: elapsed(), ...(hosted && current.reviewer?.enabled ? { muted: current.reviewer.presentation === "text" } : {}) });
     timer = setInterval(() => {
       status({ duration: elapsed() });
       if (hosted && elapsed() >= 300) {
@@ -256,7 +258,15 @@ export async function startRecording(selected?: Source, preparedStream?: MediaSt
         void stopRecording();
       }
     }, 1000);
-    sample = setInterval(() => void sendFrame(), 2000);
+    sample = setInterval(() => {
+      const current = useApp.getState().data;
+      if (hosted && current?.session?.reviewer?.enabled && current.credentials.openai && !current.busy.length) {
+        void useApp.getState().command("reviewer-tick", {
+          duration: elapsed(), available: useMedia.getState().status.voice === "idle" && Date.now() - useMedia.getState().lastInteractionAt >= 3000,
+        }).catch(report);
+      }
+      void sendFrame();
+    }, 2000);
   } catch (error) {
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;

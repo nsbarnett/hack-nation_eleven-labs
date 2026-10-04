@@ -24,6 +24,7 @@ class EvaluationConfig:
     live_cooldown_s: float = 45
     live_budget_per_10min: int = 5
     max_trace_entries: int = 100
+    live_priority_threshold: float = 60
 
 
 CONFIG = EvaluationConfig()
@@ -31,6 +32,10 @@ OPEN = {"open", "partial", "disputed"}
 PRIORITY = {"guardrail": 0, "escalation": 0, "contradiction": 0,
             "threshold": 1, "operator": 1, "exception": 1, "scope": 1,
             "reason": 2, "rule": 2, "cue": 3}
+WEIGHT = {field: (3 if priority == 0 else 1 if field == "cue" else 2)
+          for field, priority in PRIORITY.items()}
+CREDIT = {"open": 0, "disputed": 0, "partial": 0.5, "observed": 1,
+          "expert_stated": 1, "verified": 1, "not_applicable": 1}
 TEMPLATES = {
     "reason": "What made you choose that action?",
     "rule": "What rule should someone follow when making this decision?",
@@ -263,15 +268,33 @@ def apply_assessment(session, result: AssessmentResult, assessed_ids):
     refresh(session)
 
 
-def next_gap(session, phase="debrief"):
+def process_score(session, decision_id=None):
+    """Evidence completeness, not a rating of the human or proof of correctness."""
+    gaps = [g for g in session.evaluation.gaps if decision_id is None or g.decision_id == decision_id]
+    total = sum(WEIGHT[g.field] for g in gaps)
+    return round(100 * sum(WEIGHT[g.field] * CREDIT[g.status] for g in gaps) / total, 1) if total else None
+
+
+def question_score(session, gap):
+    decision = next(d for d in session.evaluation.decisions if d.id == gap.decision_id)
+    confidence = decision.observation_confidence if decision.observation_confidence is not None else 1
+    completeness = process_score(session, gap.decision_id) or 0
+    return round(60 * WEIGHT[gap.field] / 3 + 25 * (1 - completeness / 100) + 15 * confidence, 1)
+
+
+def next_gap(session, phase="debrief", decision_ids=None):
     refresh(session)
     decisions = {d.id: d for d in session.evaluation.decisions}
     deferred = {a.gap_id for a in session.evaluation.attempts if a.state == "deferred"}
     counts = {g.id: sum(a.gap_id == g.id for a in session.evaluation.attempts) for g in session.evaluation.gaps}
+    sources = expert_sources(session)
     pool = [g for g in session.evaluation.gaps if g.status in OPEN
-            and (phase != "live" or (g.id not in deferred and decisions[g.decision_id].observation_usable))]
+            and (decision_ids is None or g.decision_id in decision_ids)
+            and (phase != "live" or (g.id not in deferred and decisions[g.decision_id].observation_usable
+                                    and any(i in sources and session.duration - sources[i].timestamp <= CONFIG.max_live_evidence_age_s for i in g.evidence_ids)
+                                    and question_score(session, g) >= CONFIG.live_priority_threshold))]
     order = {g.id: i for i, g in enumerate(session.evaluation.gaps)}
-    return min(pool, key=lambda g: (PRIORITY[g.field], counts[g.id],
+    return min(pool, key=lambda g: (PRIORITY[g.field], counts[g.id], -question_score(session, g), g.field != "reason",
         -(decisions[g.decision_id].observation_confidence if decisions[g.decision_id].observation_confidence is not None else 1),
         order[g.id])) if pool else None
 
@@ -280,6 +303,9 @@ def question_for(session, gap):
     decision = next(d for d in session.evaluation.decisions if d.id == gap.decision_id)
     if not decision.observation_usable:
         return f"For {decision.label}: what actually happened at this step? The recorded values are unclear."
+    observed = next((o for o in reversed(session.observations) if observation_decision(o) == gap.decision_id), None)
+    if observed and observed.event_type in {"field_changed", "action_reversed"} and observed.before_readable and observed.after_readable:
+        return f"You changed {observed.field_name or decision.label} from {observed.before} to {observed.after}. {TEMPLATES[gap.field]}"
     return f"For {decision.label}: {TEMPLATES[gap.field]}"
 
 
@@ -289,9 +315,10 @@ def ask_gap(session, gap, phase="debrief", text=None):
         return active
     attempt = QuestionAttempt(gap_id=gap.id, text=text or question_for(session, gap),
                               evidence_ids=list(dict.fromkeys(gap.evidence_ids + gap.supporting_evidence_ids)), phase=phase,
-                              timestamp=session.duration)
+                              timestamp=session.duration, priority_score=question_score(session, gap),
+                              process_score=process_score(session))
     session.evaluation.attempts.append(attempt)
-    trace(session, "ASK", f"Selected {gap.field}; priority {PRIORITY[gap.field]}; status {gap.status}.", gap.id)
+    trace(session, "ASK", f"Selected {gap.field}; question priority {attempt.priority_score}/100; process completeness {attempt.process_score}; status {gap.status}.", gap.id)
     return attempt
 
 
@@ -301,6 +328,7 @@ def summary(session):
     pending = pending_sources(session)
     return {
         "parameters": asdict(CONFIG),
+        "process_score": process_score(session),
         "dimensions": {
             "observation_quality": {"usable": sum(d.observation_usable for d in state.decisions if d.observation_confidence is not None),
                                     "total": sum(d.observation_confidence is not None for d in state.decisions)},

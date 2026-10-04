@@ -28,6 +28,9 @@ Never use a case identifier as a monetary threshold. Preserve currency, units an
 Compare new statements with prior assessments and verified knowledge; flag unresolved conflicts.
 Propose gaps only where evidence makes them applicable: reason, rule, scope, threshold, operator,
 exception, guardrail, escalation, contradiction, cue. Do not manufacture a fixed quota of gaps.
+When an expert describes changing, reversing, holding, or choosing an action without explaining why,
+propose a reason gap for that text decision, citing the note. Describe it as a reported action,
+not an independently observed screen event. Routine navigation alone needs no reason gap.
 One explained example is not a universal rule. Model-inferred Work Map prose is not expert evidence.
 Assess all pending evidence; unrelated notes may use their own text decision. No question wording,
 verification, or action authorization is requested.""", {
